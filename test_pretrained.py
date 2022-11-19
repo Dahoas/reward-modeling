@@ -1,3 +1,10 @@
+import os
+import pandas as pd
+import torch
+from torch.utils.data import Dataset, random_split
+from transformers import AutoTokenizer, TrainingArguments, Trainer, AutoModelForCausalLM, IntervalStrategy, AutoModel, AutoConfig, PreTrainedModel
+import json
+import deepspeed
 from transformers import GPT2LMHeadModel, GPT2Tokenizer, GPT2Model, PreTrainedModel, AutoModelForCausalLM, GPT2PreTrainedModel, GPT2Model
 from transformers.modeling_outputs import ModelOutput
 from torch import nn
@@ -6,16 +13,7 @@ import torch.nn.functional as F
 import torch
 from dataclasses import dataclass
 from typing import Optional, Tuple
-
-@dataclass
-class CausalLMOutputWithCrossAttentions(ModelOutput):
-    loss: Optional[torch.FloatTensor] = None
-    logits: torch.FloatTensor = None
-    past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
-    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
-    attentions: Optional[Tuple[torch.FloatTensor]] = None
-    cross_attentions: Optional[Tuple[torch.FloatTensor]] = None
-    value: Optional[torch.FloatTensor] = None
+from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
 
 
 class GPTRewardModel(nn.Module):
@@ -61,3 +59,10 @@ class GPTRewardModel(nn.Module):
         rewards = self.v_head(hidden_states).squeeze(-1)
 
         return rewards
+
+
+model = GPTRewardModel("EleutherAI/gpt-neo-2.7B")
+fp32_model = load_state_dict_from_zero_checkpoint(model, 'results/checkpoint-134')
+
+#torch.save(model.state_dict(), "ckpts/single_context_pairwise/test_model.pt")
+#model.load_state_dict(torch.load('ckpts/single_context_pairwise/model_fp16.pt'))

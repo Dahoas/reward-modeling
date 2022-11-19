@@ -1,4 +1,10 @@
 import os
+#os.environ['MASTER_ADDR'] = 'localhost'
+#os.environ['MASTER_PORT'] = '9994'
+#os.environ['RANK'] = "0"
+#os.environ['LOCAL_RANK'] = "0"
+#os.environ['WORLD_SIZE'] = "4"
+#os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, random_split
@@ -17,51 +23,34 @@ with open(dataset_name + ".jsonl", "r") as f:
         #data.append(loaded_line["prompt"] + loaded_line["response"])
 print("Len data: ", len(data))
 
-tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-2.7B")
-tokenizer.pad_token = tokenizer.eos_token
-PAD_ID = tokenizer(tokenizer.pad_token)["input_ids"][0]
-training_args = TrainingArguments(output_dir=f'ckpts/{dataset_name}/gpt-neo-one-epoch', num_train_epochs=1, logging_steps=100, save_strategy="epoch",
-                                  per_device_train_batch_size=1, per_device_eval_batch_size=1, warmup_steps=100,
-                                  weight_decay=0.01, logging_dir="./logs", fp16=True, bf16=False, learning_rate=5e-6, deepspeed='./ds_config_gpt_2.json', save_total_limit=1)
-# gptneo trained in jax
-
 class PairwiseTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         # forward pass
-        assert len(inputs["input_ids"].shape) == 2
-        bs = inputs["input_ids"].shape // 2
-        chosen = inputs["input_ids"][:bs]
-        rejected = inputs["input_ids"][bs:]
         rewards = model(**inputs)
-        chosen_rewards = rewards[:bs]
-        rejected_rewards = rewards[bs:]
-        # compute pairwise loss. Only backprop on last value before padding
-        loss = 0
-        for i in range(bs):
-            c_reward = chosen_rewards[i]
-            r_reward = rejected_rewards[i]
-            c_inds = (chosen[i] == PAD_ID).nonzero()
-            # Check if there is any padding otherwise take entire sequence
-            c_ind = c_inds[0] - 1 if len(c_inds) > 0 else chosen.shape[1]
-            r_inds = (rejected[i] == PAD_ID).nonzero()
-            r_ind = r_inds[0] - 1 if len(r_inds) > 0 else rejected.shape[1]
-            # Index into correct reward
-            c_full_reward = chosen_rewards[i][c_ind]
-            r_full_reward = rejected_rewards[i][r_ind]
-            loss += -torch.log(torch.sigmoid(c_full_reward - r_full_reward))
-        loss = loss / bs
-        loss = -torch.log(torch.sigmoid(chosen_rewards[:, -1] - rejected_rewards[:, -1])).mean()
+        rewards_chunked = rewards.view((2, -1))
+        chosen_rewards = rewards_chunked[0]
+        rejected_rewards = rewards_chunked[1]
+        # compute pairwise loss
+        loss = -torch.log(torch.sigmoid(chosen_rewards - rejected_rewards)).mean()
         return (loss, outputs) if return_outputs else loss
 
+tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-j-6B")
+tokenizer.pad_token = tokenizer.eos_token
+training_args = TrainingArguments(output_dir=f'ckpts/{dataset_name}/gpt-j', num_train_epochs=8, logging_steps=100, save_strategy="epoch",
+                                  per_device_train_batch_size=1, per_device_eval_batch_size=1, warmup_steps=100,
+                                  weight_decay=0.01, logging_dir='./logs', fp16=True, bf16=False, learning_rate=5e-6, deepspeed='./ds_config_gpt_j.json', save_total_limit=1)
+# gptneo trained in jaxh
 
-model = GPTRewardModel("EleutherAI/gpt-neo-2.7B")
+model = GPTRewardModel("EleutherAI/gpt-j-6B")
+layers = model.transformer.h
+num_layers = len(layers)
+num_unfrozen = int(0.5 * num_layers)
+for layer in layers[:-num_unfrozen]:
+    layer.requires_grad_(False)
 load_checkpoint = False
 if load_checkpoint:
-    zero_path = ""
-    model = load_state_dict_from_zero_checkpoint(model, '')
+    model.load_state_dict(torch.load('ckpts/single_context_pairwise/model_fp16.pt'))
 #model.cuda()
-
-
 
 
 max_length = 1024
@@ -102,11 +91,3 @@ train_size = int(0.9 * len(dataset))
 train_dataset, val_dataset = random_split(dataset, [train_size, len(dataset) - train_size])
 PairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
         eval_dataset=val_dataset, data_collator=data_collator).train()
-
-
-'''if torch.distributed.get_rank() == 0:
-    print("SAVING MODEL")
-    dir_path = os.path.join("ckpts", dataset_name)
-    if not os.path.isdir(dir_path):
-	    os.mkdir(dir_path)
-    torch.save(model.state_dict(), os.path.join(dir_path, "model_fp16_8.pt"))'''
