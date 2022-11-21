@@ -17,10 +17,11 @@ with open(dataset_name + ".jsonl", "r") as f:
         #data.append(loaded_line["prompt"] + loaded_line["response"])
 print("Len data: ", len(data))
 
-tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-2.7B")
+model_name = "EleutherAI/gpt-neo-2.7B"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
 PAD_ID = tokenizer(tokenizer.pad_token)["input_ids"][0]
-training_args = TrainingArguments(output_dir=f'ckpts/{dataset_name}/gpt-neo-one-epoch', num_train_epochs=1, logging_steps=100, save_strategy="epoch",
+training_args = TrainingArguments(output_dir=f'ckpts/{dataset_name}/gpt-neo-four-epoch', num_train_epochs=4, logging_steps=100, save_strategy="epoch",
                                   per_device_train_batch_size=1, per_device_eval_batch_size=1, warmup_steps=100,
                                   weight_decay=0.01, logging_dir="./logs", fp16=True, bf16=False, learning_rate=5e-6, deepspeed='./ds_config_gpt_2.json', save_total_limit=1)
 # gptneo trained in jax
@@ -29,7 +30,7 @@ class PairwiseTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         # forward pass
         assert len(inputs["input_ids"].shape) == 2
-        bs = inputs["input_ids"].shape // 2
+        bs = inputs["input_ids"].shape[0] // 2
         chosen = inputs["input_ids"][:bs]
         rejected = inputs["input_ids"][bs:]
         rewards = model(**inputs)
@@ -38,23 +39,24 @@ class PairwiseTrainer(Trainer):
         # compute pairwise loss. Only backprop on last value before padding
         loss = 0
         for i in range(bs):
-            c_reward = chosen_rewards[i]
-            r_reward = rejected_rewards[i]
+            # Retrieve first index where trajectories diverge
+            divergence_ind = (chosen[i] != rejected[i]).nonzero()[0]
+            assert divergence_ind > 0
+            # Check if there is any padding otherwise take length of sequence
             c_inds = (chosen[i] == PAD_ID).nonzero()
-            # Check if there is any padding otherwise take entire sequence
-            c_ind = c_inds[0] - 1 if len(c_inds) > 0 else chosen.shape[1]
+            c_ind = c_inds[0].item() if len(c_inds) > 0 else chosen.shape[1]
             r_inds = (rejected[i] == PAD_ID).nonzero()
-            r_ind = r_inds[0] - 1 if len(r_inds) > 0 else rejected.shape[1]
+            r_ind = r_inds[0].item() if len(r_inds) > 0 else rejected.shape[1]
+            end_ind = max(c_ind, r_ind)
             # Index into correct reward
-            c_full_reward = chosen_rewards[i][c_ind]
-            r_full_reward = rejected_rewards[i][r_ind]
-            loss += -torch.log(torch.sigmoid(c_full_reward - r_full_reward))
+            c_truncated_reward = chosen_rewards[i][divergence_ind : end_ind]
+            r_truncated_reward = rejected_rewards[i][divergence_ind : end_ind]
+            loss += -torch.log(torch.sigmoid(c_truncated_reward - r_truncated_reward)).mean()
         loss = loss / bs
-        loss = -torch.log(torch.sigmoid(chosen_rewards[:, -1] - rejected_rewards[:, -1])).mean()
         return (loss, outputs) if return_outputs else loss
 
 
-model = GPTRewardModel("EleutherAI/gpt-neo-2.7B")
+model = GPTRewardModel(model_name)
 load_checkpoint = False
 if load_checkpoint:
     zero_path = ""
@@ -77,10 +79,13 @@ class PairwiseDataset(Dataset):
         self.rejected_attn_masks = []
         for pair in pairs:
             chosen, rejected = pair["chosen"], pair["rejected"]
+            # If chosen is same as rejected just continue
             chosen_encodings_dict = tokenizer('<|startoftext|>' + chosen + '<|endoftext|>', truncation=True,
                                        max_length=max_length, padding="max_length", return_tensors="pt")
             rejected_encodings_dict = tokenizer('<|startoftext|>' + rejected + '<|endoftext|>', truncation=True,
                                        max_length=max_length, padding="max_length", return_tensors="pt")
+            if len((chosen_encodings_dict["input_ids"] != rejected_encodings_dict["input_ids"]).nonzero()) == 0:
+                continue
             self.chosen_input_ids.append(chosen_encodings_dict['input_ids'])
             self.chosen_attn_masks.append(chosen_encodings_dict['attention_mask'])
             self.rejected_input_ids.append(rejected_encodings_dict['input_ids'])

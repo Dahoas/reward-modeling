@@ -84,7 +84,7 @@ def eval_rm():
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=data_collator)
 
     model = GPTRewardModel("EleutherAI/gpt-neo-2.7B")
-    model.load_state_dict(torch.load("ckpts/single_context_pairwise/gpt-neo2.7B.pt"))
+    model.load_state_dict(torch.load("ckpts/single_context_pairwise/gpt-neo2.7B-one-epoch.pt"))
     model.half() # Converts to fp16 for faster inference
     model.eval()
     model.cuda()
@@ -113,8 +113,8 @@ def eval_rm():
 
 def save_as_fp32():
     model = GPTRewardModel("EleutherAI/gpt-neo-2.7B")
-    model = load_state_dict_from_zero_checkpoint(model, "ckpts/single_context_pairwise/gpt-neo/checkpoint-106440")
-    torch.save(model.state_dict(), "ckpts/single_context_pairwise/gpt-neo2.7B.pt")
+    model = load_state_dict_from_zero_checkpoint(model, "ckpts/single_context_pairwise/gpt-neo-one-epoch/checkpoint-13218")
+    torch.save(model.state_dict(), "ckpts/single_context_pairwise/gpt-neo2.7B-one-epoch.pt")
 
 if __name__ == "__main__":
     eval_rm()
