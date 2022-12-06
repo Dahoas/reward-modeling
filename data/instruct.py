@@ -150,8 +150,8 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 
 	Logger.init(args.log_file)
-	api_key = "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"
-	openai.api_key = api_key
+	api_key = ""
+        openai.api_key = api_key
 
 
 	#free_sample()
