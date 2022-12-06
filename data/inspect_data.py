@@ -43,5 +43,24 @@ def t2():
 	print(cnt)
 	print(repeated[0])
 
+def zero_one_label():
+	data = []
+	dataset_name = "single_context_pairwise"
+	with open(dataset_name + ".jsonl", "r") as f:
+		lines = f.readlines()
+		for line in lines:
+			loaded_line = json.loads(line)
+			data.append(loaded_line)
+
+	for data_element in data:
+		data_element["chosen_reward"] = 1
+		data_element["rejected_reward"] = 0
+
+	with open("single_context_pairwise_binary_reward.jsonl", "w") as f:
+		for line in data:
+			json.dump(line, f)
+			f.write("\n")
+
+
 if __name__ == "__main__":
-	t2()
+	zero_one_label()
