@@ -7,16 +7,6 @@ import torch
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-@dataclass
-class CausalLMOutputWithCrossAttentions(ModelOutput):
-    loss: Optional[torch.FloatTensor] = None
-    logits: torch.FloatTensor = None
-    past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
-    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
-    attentions: Optional[Tuple[torch.FloatTensor]] = None
-    cross_attentions: Optional[Tuple[torch.FloatTensor]] = None
-    value: Optional[torch.FloatTensor] = None
-
 
 class GPTRewardModel(nn.Module):
     def __init__(self, config):

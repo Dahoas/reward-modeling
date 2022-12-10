@@ -7,3 +7,4 @@ results/
 *.jsonl
 *.txt
 *.csv
+datasets/

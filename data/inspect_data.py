@@ -1,4 +1,6 @@
 import json
+from tqdm import tqdm
+from data_utils import load_jsonl, dump_jsonl
 
 def t1():
 	data = []
@@ -62,5 +64,36 @@ def zero_one_label():
 			f.write("\n")
 
 
+def merge_davinci_gens():
+    data_1 = load_jsonl("datasets/synthetic_completions.jsonl")
+    data_2 = load_jsonl("datasets/davinci_completions.jsonl")
+
+    data = data_1 + data_2
+
+    # Filtering for redundant prompts
+    data_dict = {}
+    for datapoint in data:
+        prompt = datapoint["prompt"].split("Task: ")[1]
+        data_dict[prompt] = datapoint["response"]
+    data = [{"prompt": k, "response": v} for k, v in data_dict.items()]
+    dump_jsonl("complete_davinci_completions.jsonl", data)
+
+def pair_instruct_gptj():
+    instruct_data = load_jsonl("datasets/complete_davinci_completions.jsonl")
+    instruct_data = {datapoint["prompt"]: datapoint["response"] for datapoint in instruct_data}
+    gptj_data = load_jsonl("datasets/gptj_completions.jsonl")
+    gptj_data = {datapoint["prompt"]: datapoint["response"] for datapoint in gptj_data}
+
+    data = []
+    for prompt, response in tqdm(instruct_data.items()):
+        for gptj_prompt, gptj_response in gptj_data.items():
+            if prompt in gptj_prompt:
+                data.append({"chosen": response, "rejected": gptj_response})
+                gptj_data.pop(gptj_prompt)
+                break
+    dump_jsonl("datasets/instruct_gptj_pairs.jsonl", data)
+
 if __name__ == "__main__":
-	zero_one_label()
+	#zero_one_label()
+        #merge_davinci_gens()
+        pair_instruct_gptj()
