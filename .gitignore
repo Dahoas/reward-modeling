@@ -3,7 +3,6 @@ ckpts/
 *.pt
 __pycache__
 results/
-*.json
 *.jsonl
 *.txt
 *.csv
