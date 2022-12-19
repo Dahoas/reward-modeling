@@ -6,28 +6,27 @@ from transformers import AutoTokenizer, TrainingArguments, Trainer, AutoModelFor
 import json
 import argparse
 from utils import load_yaml, load_jsonl
-from rm_datasets import TextDataset
+from rm_datasets import SFTDataset
 import wandb
+from datasets import load_dataset
 
 
 def train(config):
-
     tokenizer = AutoTokenizer.from_pretrained(config["tokenizer_path"])
     tokenizer.pad_token = tokenizer.eos_token
     training_args = TrainingArguments(**config["train_args"])
     model = AutoModelForCausalLM.from_pretrained(config["model_path"]).cuda()
 
-    data = load_jsonl(config["data_path"])
+    data = load_dataset(config["data_path"])["train"]
     print("Len data: ", len(data))
 
-    dataset = TextDataset(data, tokenizer, max_length=max_length)
+    dataset = SFTDataset(data, tokenizer)
     train_size = int(0.98 * len(dataset))
     train_dataset, val_dataset = random_split(dataset, [train_size, len(dataset) - train_size])
     Trainer(model=model, args=training_args, train_dataset=train_dataset,
             eval_dataset=val_dataset, data_collator=lambda data: {'input_ids': torch.stack([f[0] for f in data]),
                                                                 'attention_mask': torch.stack([f[1] for f in data]),
                                                                 'labels': torch.stack([f[2] for f in data])}).train()
-    
     
     for batch in val_dataset:
         prompts = tokenizer.batch_decode(batch["input_ids"])
@@ -41,7 +40,6 @@ def train(config):
         for prompt, response in zip(prompts, responses):
             wandb.log({"prompt": prompt, "response": response})
     
-
     if torch.distributed.get_rank() == 0:
         print("SAVING MODEL")
         model.save_pretrained(config["save_dir"])
@@ -51,6 +49,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_path", type=str)
     parser.add_argument("--ds_config_path", type=str)
+    parser.add_argument("--deepspeed", type=str)
+    parser.add_argument("--local_rank", type=int)
     args = parser.parse_args()
 
     config = load_yaml(args.config_path)

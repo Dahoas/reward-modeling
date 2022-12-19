@@ -1,14 +1,14 @@
-model_path: "gpt2"
-tokenizer_path: "gpt2"
-save_dir: "../ckpts/gpt2-sft"
+model_path: "EleutherAI/gpt-neo-1.3B"
+tokenizer_path: "EleutherAI/gpt-neo-1.3B"
+save_dir: "../ckpts/gptneo-sft"
 
 train_args:
   output_dir: "./results"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "no"
-  per_device_train_batch_size: 4
-  per_device_eval_batch_size: 4
+  per_device_train_batch_size: 3
+  per_device_eval_batch_size: 3
   warmup_steps: 100
   weight_decay: 0.01
   logging_dir: "./logs"
