@@ -3,12 +3,12 @@ tokenizer_path: "EleutherAI/gpt-j-6B"
 save_dir: "../ckpts/gptj-sft"
 
 train_args:
-  output_dir: "./results"
+  output_dir: "../ckpts/gptj-sft"
   num_train_epochs: 1
   logging_steps: 100
-  save_strategy: "no"
-  per_device_train_batch_size: 2
-  per_device_eval_batch_size: 2
+  save_strategy: "epoch"
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
   logging_dir: "./logs"

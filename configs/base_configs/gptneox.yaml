@@ -1,14 +1,14 @@
-model_path: "gpt2"
-tokenizer_path: "gpt2"
-save_dir: "../ckpts/gpt2-sft"
+model_path: "EleutherAI/gpt-neox-20b"
+tokenizer_path: "EleutherAI/gpt-neox-20b"
+save_dir: "../ckpts/gptneox-sft"
 
 train_args:
-  output_dir: "../ckpts/gpt2-sft"
+  output_dir: "../ckpts/gptneox-sft"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
-  per_device_train_batch_size: 4
-  per_device_eval_batch_size: 4
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
   logging_dir: "./logs"

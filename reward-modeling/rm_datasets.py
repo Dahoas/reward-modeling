@@ -6,6 +6,7 @@ class SFTDataset(Dataset):
             self.input_ids = []
             self.attn_masks = []
             self.labels = []
+            self.prompts = []
             EOS_ID = tokenizer("<|endoftext|>")["input_ids"][0]
 
             max_length = min(1024, max([len(tokenizer.encode(ele["prompt"] + "\n\n" + ele["response"] + '<|endoftext|>')) for ele in data]))
@@ -32,9 +33,10 @@ class SFTDataset(Dataset):
                 self.input_ids.append(input_id)
                 self.attn_masks.append(attn_mask)
                 self.labels.append(self.input_ids[-1] * flipped_mask - 100 * label_mask)
+                self.prompts.append(prompt)
 
         def __len__(self):
             return len(self.input_ids)
 
         def __getitem__(self, idx):
-            return self.input_ids[idx], self.attn_masks[idx], self.labels[idx]
+            return self.input_ids[idx], self.attn_masks[idx], self.labels[idx], self.prompts[idx]
