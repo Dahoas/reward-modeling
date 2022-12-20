@@ -69,9 +69,10 @@ def hf_get_causal_hidden_layers(model: nn.Module):
     return findattr(model, hidden_layers_attrs)
 
 
-def freeze_bottom_causal_layers(model: nn.Module, num_layers_unfrozen: int = 0):
+def freeze_bottom_causal_layers(model: nn.Module, num_layers_unfrozen):
     """Freezes the bottom transformer block layers of the specified model."""
     hidden_layers = hf_get_causal_hidden_layers(model)
+    num_layers_unfrozen = int(len(hidden_layers) * num_layers_unfrozen) if type(num_layers_unfrozen) is float else num_layers_unfrozen
     if num_layers_unfrozen == 0:
         hidden_layers_to_freeze = list(hidden_layers)
     elif num_layers_unfrozen > 0:

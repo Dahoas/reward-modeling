@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 
-class GPTRewardModel(nn.Module):
+class RewardModel(nn.Module):
     def __init__(self, config):
         super().__init__()
         model = AutoModelForCausalLM.from_pretrained(config)

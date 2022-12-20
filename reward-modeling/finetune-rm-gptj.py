@@ -23,16 +23,7 @@ with open(dataset_name + ".jsonl", "r") as f:
         #data.append(loaded_line["prompt"] + loaded_line["response"])
 print("Len data: ", len(data))
 
-class PairwiseTrainer(Trainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        # forward pass
-        rewards = model(**inputs)
-        rewards_chunked = rewards.view((2, -1))
-        chosen_rewards = rewards_chunked[0]
-        rejected_rewards = rewards_chunked[1]
-        # compute pairwise loss
-        loss = -torch.log(torch.sigmoid(chosen_rewards - rejected_rewards)).mean()
-        return (loss, outputs) if return_outputs else loss
+
 
 tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-j-6B")
 tokenizer.pad_token = tokenizer.eos_token
@@ -58,32 +49,9 @@ max_length = 1024
 print("Max length: {}".format(max_length))
 
 
-class PairwiseDataset(Dataset):
-    def __init__(self, pairs, tokenizer, max_length):
-        self.chosen_input_ids = []
-        self.chosen_attn_masks = []
-        self.rejected_input_ids = []
-        self.rejected_attn_masks = []
-        for pair in pairs:
-            chosen, rejected = pair["chosen"], pair["rejected"]
-            chosen_encodings_dict = tokenizer('<|startoftext|>' + chosen + '<|endoftext|>', truncation=True,
-                                       max_length=max_length, padding="max_length", return_tensors="pt")
-            rejected_encodings_dict = tokenizer('<|startoftext|>' + rejected + '<|endoftext|>', truncation=True,
-                                       max_length=max_length, padding="max_length", return_tensors="pt")
-            self.chosen_input_ids.append(chosen_encodings_dict['input_ids'])
-            self.chosen_attn_masks.append(chosen_encodings_dict['attention_mask'])
-            self.rejected_input_ids.append(rejected_encodings_dict['input_ids'])
-            self.rejected_attn_masks.append(rejected_encodings_dict['attention_mask'])
 
-    def __len__(self):
-        return len(self.chosen_input_ids)
 
-    def __getitem__(self, idx):
-        return self.chosen_input_ids[idx], self.chosen_attn_masks[idx], self.rejected_input_ids[idx], self.rejected_attn_masks[idx]
 
-def data_collator(data):
-    return {'input_ids': torch.cat([f[0] for f in data] + [f[2] for f in data]),
-            'attention_mask': torch.cat([f[1] for f in data] + [f[3] for f in data])}
 
 
 dataset = PairwiseDataset(data, tokenizer, max_length=max_length)

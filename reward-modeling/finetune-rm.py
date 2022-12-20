@@ -4,31 +4,24 @@ import torch
 from torch.utils.data import Dataset, random_split
 from transformers import AutoTokenizer, TrainingArguments, Trainer, AutoModelForCausalLM, IntervalStrategy, AutoModel, AutoConfig, PreTrainedModel
 import json
-from reward_model import GPTRewardModel
+from reward_model import RewardModel
 import deepspeed
+from rm_datasets import PairwiseDataset
+import argparse
+from utils import freeze_bottom_causal_layers
 
-data = []
-dataset_name = "single_context_pairwise"
-with open(dataset_name + ".jsonl", "r") as f:
-    lines = f.readlines()
-    for line in lines:
-        loaded_line = json.loads(line)
-        data.append(loaded_line)
-        #data.append(loaded_line["prompt"] + loaded_line["response"])
-print("Len data: ", len(data))
 
-model_name = "EleutherAI/gpt-neo-2.7B"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-tokenizer.pad_token = tokenizer.eos_token
-PAD_ID = tokenizer(tokenizer.pad_token)["input_ids"][0]
-training_args = TrainingArguments(output_dir=f'ckpts/{dataset_name}/gpt-neo-four-epoch', num_train_epochs=4, logging_steps=100, save_strategy="epoch",
-                                  per_device_train_batch_size=1, per_device_eval_batch_size=1, warmup_steps=100,
-                                  weight_decay=0.01, logging_dir="./logs", fp16=True, bf16=False, learning_rate=5e-6, deepspeed='./ds_config_gpt_2.json', save_total_limit=1)
-# gptneo trained in jax
+def make_rm(model_name):
+    config = AutoConfig.from_pretrained("gpt2")
+    config.num_labels = 1
+    reward_model = AutoModelForSequenceClassification.from_config(config)
+    return reward_model
 
-class PairwiseTrainer(Trainer):
+
+class SparsePairwiseTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         # forward pass
+        model.PAD_ID = PAD_ID
         assert len(inputs["input_ids"].shape) == 2
         bs = inputs["input_ids"].shape[0] // 2
         chosen = inputs["input_ids"][:bs]
@@ -42,76 +35,83 @@ class PairwiseTrainer(Trainer):
             # Retrieve first index where trajectories diverge
             divergence_ind = (chosen[i] != rejected[i]).nonzero()[0]
             assert divergence_ind > 0
-            # Check if there is any padding otherwise take length of sequence
-            c_inds = (chosen[i] == PAD_ID).nonzero()
-            c_ind = c_inds[0].item() if len(c_inds) > 0 else chosen.shape[1]
-            r_inds = (rejected[i] == PAD_ID).nonzero()
-            r_ind = r_inds[0].item() if len(r_inds) > 0 else rejected.shape[1]
-            end_ind = max(c_ind, r_ind)
+            # Input tokens should be truncated to have endoftext padding
+            c_end = (chosen[i] == PAD_ID).nonzero()[0].item()
+            r_end = (rejected[i] == PAD_ID).nonzero()[0].item()
             # Index into correct reward
-            c_truncated_reward = chosen_rewards[i][divergence_ind : end_ind]
-            r_truncated_reward = rejected_rewards[i][divergence_ind : end_ind]
+            c_truncated_reward = chosen_rewards[i][c_end]
+            r_truncated_reward = rejected_rewards[i][r_end]
             loss += -torch.log(torch.sigmoid(c_truncated_reward - r_truncated_reward)).mean()
         loss = loss / bs
         return (loss, outputs) if return_outputs else loss
 
 
-model = GPTRewardModel(model_name)
-load_checkpoint = False
-if load_checkpoint:
-    zero_path = ""
-    model = load_state_dict_from_zero_checkpoint(model, '')
-#model.cuda()
+class DensePairwiseTrainer(Trainer):
+    def compute_loss(self, model, inputs, PAD_ID, return_outputs=False):
+        # forward pass
+        assert len(inputs["input_ids"].shape) == 2
+        bs = inputs["input_ids"].shape[0] // 2
+        chosen = inputs["input_ids"][:bs]
+        rejected = inputs["input_ids"][bs:]
+        rewards = model(**inputs).logits
+        chosen_rewards = rewards[:bs]
+        rejected_rewards = rewards[bs:]
+        # compute pairwise loss. Only backprop on last value before padding
+        loss = 0
+        for i in range(bs):
+            # Retrieve first index where trajectories diverge
+            divergence_ind = (chosen[i] != rejected[i]).nonzero()[0]
+            assert divergence_ind > 0
+            # Input tokens should be truncated to have endoftext padding
+            c_end = (chosen[i] == PAD_ID).nonzero()[0].item()
+            r_end = (rejected[i] == PAD_ID).nonzero()[0].item()
+            # Index into correct reward
+            c_truncated_reward = chosen_rewards[i][divergence_ind : c_end]
+            r_truncated_reward = rejected_rewards[i][divergence_ind : r_end]
+            # TODO(dahoas): Probably mean is not the best choice here. Instead want exponential decay
+            # as distance from last token increases
+            loss += -torch.log(torch.sigmoid(c_truncated_reward - r_truncated_reward)).mean()
+        loss = loss / bs
+        return (loss, outputs) if return_outputs else loss
 
 
+def train(config):
+    tokenizer = AutoTokenizer.from_pretrained(config["tokenizer_path"])
+    tokenizer.pad_token = tokenizer.eos_token
+    training_args = TrainingArguments(**config["train_args"])
 
+    data = load_dataset(config["data_path"])
+    max_length = 1024
+    train_dataset = PairwiseDataset(data["train"], tokenizer, max_length=max_length)
+    eval_dataset = PairwiseDataset(data["eval"], tokenizer, max_length=max_length)
 
-max_length = 1024
-#max_length = max([max(len(tokenizer.encode(text["chosen"])), len(tokenizer.encode(text["rejected"]))) for text in data])
-print("Max length: {}".format(max_length))
+    model = RewardModel(model_name)
+    freeze_bottom_causal_layers(model, config["num_layers_unfrozen"])
 
+    PAD_ID = tokenizer(tokenizer.pad_token)["input_ids"][0]
+    model.PAD_ID = PAD_ID
+    training_args = TrainingArguments(**config["train_args"])
+    #TrainingArguments(output_dir=f'ckpts/{dataset_name}/gpt-neo-four-epoch', num_train_epochs=4, logging_steps=100, save_strategy="epoch",
+    #                                per_device_train_batch_size=1, per_device_eval_batch_size=1, warmup_steps=100,
+    #                                weight_decay=0.01, logging_dir="./logs", fp16=True, bf16=False, learning_rate=5e-6, deepspeed='./ds_config_gpt_2.json', save_total_limit=1)
+    if config["use_sparse_trainer"]:
+        SparsePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
+            eval_dataset=val_dataset, data_collator=data_collator).train()
+    else:
+        DensePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
+            eval_dataset=val_dataset, data_collator=data_collator).train()
 
-class PairwiseDataset(Dataset):
-    def __init__(self, pairs, tokenizer, max_length):
-        self.chosen_input_ids = []
-        self.chosen_attn_masks = []
-        self.rejected_input_ids = []
-        self.rejected_attn_masks = []
-        for pair in pairs:
-            chosen, rejected = pair["chosen"], pair["rejected"]
-            # If chosen is same as rejected just continue
-            chosen_encodings_dict = tokenizer('<|startoftext|>' + chosen + '<|endoftext|>', truncation=True,
-                                       max_length=max_length, padding="max_length", return_tensors="pt")
-            rejected_encodings_dict = tokenizer('<|startoftext|>' + rejected + '<|endoftext|>', truncation=True,
-                                       max_length=max_length, padding="max_length", return_tensors="pt")
-            if len((chosen_encodings_dict["input_ids"] != rejected_encodings_dict["input_ids"]).nonzero()) == 0:
-                continue
-            self.chosen_input_ids.append(chosen_encodings_dict['input_ids'])
-            self.chosen_attn_masks.append(chosen_encodings_dict['attention_mask'])
-            self.rejected_input_ids.append(rejected_encodings_dict['input_ids'])
-            self.rejected_attn_masks.append(rejected_encodings_dict['attention_mask'])
+    
 
-    def __len__(self):
-        return len(self.chosen_input_ids)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_path", type=str)
+    parser.add_argument("--ds_config_path", type=str)
+    parser.add_argument("--deepspeed", type=str)
+    parser.add_argument("--local_rank", type=int)
+    args = parser.parse_args()
 
-    def __getitem__(self, idx):
-        return self.chosen_input_ids[idx], self.chosen_attn_masks[idx], self.rejected_input_ids[idx], self.rejected_attn_masks[idx]
+    config = load_yaml(args.config_path)
+    config["train_args"]["deepspeed"] = args.ds_config_path
 
-def data_collator(data):
-    return {'input_ids': torch.cat([f[0] for f in data] + [f[2] for f in data]),
-            'attention_mask': torch.cat([f[1] for f in data] + [f[3] for f in data])}
-
-
-dataset = PairwiseDataset(data, tokenizer, max_length=max_length)
-train_size = int(0.9 * len(dataset))
-train_dataset, val_dataset = random_split(dataset, [train_size, len(dataset) - train_size])
-PairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
-        eval_dataset=val_dataset, data_collator=data_collator).train()
-
-
-'''if torch.distributed.get_rank() == 0:
-    print("SAVING MODEL")
-    dir_path = os.path.join("ckpts", dataset_name)
-    if not os.path.isdir(dir_path):
-	    os.mkdir(dir_path)
-    torch.save(model.state_dict(), os.path.join(dir_path, "model_fp16_8.pt"))'''
+    train(config)
