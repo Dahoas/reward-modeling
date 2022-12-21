@@ -1,7 +1,8 @@
 import yaml
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoConfig, AutoModelForSequenceClassification, AutoModel
 from torch import nn
 import functools
+from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
 
 
 def load_yaml(config_path):
@@ -83,11 +84,27 @@ def freeze_bottom_causal_layers(model: nn.Module, num_layers_unfrozen):
         layer.requires_grad_(False)
 
 
+def make_rm(model_name):
+    config = AutoConfig.from_pretrained("gpt2")
+    config.num_labels = 1
+    reward_model = AutoModelForSequenceClassification.from_config(config)
+    return reward_model
+
 
 def upload_model():
     model_path = "../ckpts/gpt2-sft/"
     model = AutoModelForCausalLM.from_pretrained(model_path)
     model.push_to_hub(repo_url="https://huggingface.co/Dahoas/gpt2-sft-single-context")
+
+
+def convert_deepspeed_checkpoint(is_rm=True):
+    model_name = None
+    model_path = None
+    if is_rm:
+        model = make_rm(model_name)
+    else:
+        AutoModel.from_pretrained(model_name)
+    fp32_model = load_state_dict_from_zero_checkpoint(model, 'results/checkpoint-134')
 
 
 if __name__ == "__main__":

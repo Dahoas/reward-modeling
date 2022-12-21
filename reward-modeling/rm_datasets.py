@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset
 import torch
+from tqdm import tqdm
 
 class SFTDataset(Dataset):
         def __init__(self, data, tokenizer):
@@ -13,7 +14,7 @@ class SFTDataset(Dataset):
             print("Max length: {}".format(max_length))
 
             # Data expected in prompt response pairs
-            for ele in data:
+            for ele in tqdm(data):
                 prompt, response = ele["prompt"], ele["response"]
                 prompt_encoding_len = len(tokenizer(prompt + "\n\n")["input_ids"])
                 encodings_dict = tokenizer(prompt + "\n\n" + response + '<|endoftext|>', truncation=True,
@@ -49,16 +50,21 @@ class PairwiseDataset(Dataset):
         self.rejected_input_ids = []
         self.rejected_attn_masks = []
 
-        for pair in pairs:
+        cnt=0
+        for pair in tqdm(pairs):
+            if cnt > 5000:
+                break
+            else:
+                cnt+=1
             prompt = pair["prompt"]
             chosen, rejected = pair["chosen"], pair["rejected"]
-            tok_chosen = tokenizer(prompt + chosen + "<|endoftext|>", return_tensors="pt")
-            tok_rejected = tokenizer(rejected + "<|endoftext|>", return_tensors="pt")
+            tok_chosen = tokenizer(prompt + chosen + "<|endoftext|>", return_tensors="pt")["input_ids"]
+            tok_rejected = tokenizer(prompt + rejected + "<|endoftext|>", return_tensors="pt")["input_ids"]
             # Reject data with num tokens > max_length
             if tok_chosen.shape[-1] <= max_length and tok_rejected.shape[-1] <= max_length:
-                chosen_encodings_dict = tokenizer(chosen + '<|endoftext|>', truncation=True,
+                chosen_encodings_dict = tokenizer(prompt + chosen + '<|endoftext|>', truncation=True,
                                         max_length=max_length, padding="max_length", return_tensors="pt")
-                rejected_encodings_dict = tokenizer(rejected + '<|endoftext|>', truncation=True,
+                rejected_encodings_dict = tokenizer(prompt + rejected + '<|endoftext|>', truncation=True,
                                         max_length=max_length, padding="max_length", return_tensors="pt")
                 self.chosen_input_ids.append(chosen_encodings_dict['input_ids'])
                 self.chosen_attn_masks.append(chosen_encodings_dict['attention_mask'])
@@ -72,6 +78,6 @@ class PairwiseDataset(Dataset):
         return self.chosen_input_ids[idx], self.chosen_attn_masks[idx], self.rejected_input_ids[idx], self.rejected_attn_masks[idx]
 
 
-def data_collator(data):
+def pairwise_data_collator(data):
     return {'input_ids': torch.cat([f[0] for f in data] + [f[2] for f in data]),
             'attention_mask': torch.cat([f[1] for f in data] + [f[3] for f in data])}
