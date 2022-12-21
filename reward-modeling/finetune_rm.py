@@ -5,10 +5,11 @@ from torch.utils.data import Dataset, random_split
 from transformers import AutoTokenizer, TrainingArguments, Trainer, AutoModelForCausalLM, IntervalStrategy, AutoModel, AutoConfig, PreTrainedModel, AutoModelForSequenceClassification
 import json
 import deepspeed
-from rm_datasets import PairwiseDataset, pairwise_data_collator
+from rm_datasets import PairwiseDataset, pairwise_data_collator, PairwiseEvalDataset
 import argparse
 from utils import freeze_bottom_causal_layers, load_yaml, make_rm
 from datasets import load_dataset
+import wandb
 
 
 class SparsePairwiseTrainer(Trainer):
@@ -86,6 +87,18 @@ class PairwiseTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
+def pairwise_metric(eval_preds):
+    print("COMPUTING METRICS")
+    print(eval_preds)
+    logits = eval_preds
+    bs = logits.shape[0]
+    chosen_logits = logits[:bs]
+    rejected_logits = logits[bs:]
+    diff = torch.sigmoid(chosen_logits - rejected_logits) >= 0.5
+    acc = torch.sum(diff) / diff.shape[0]
+    return {"acc": acc}
+
+
 def train(config):
     tokenizer = AutoTokenizer.from_pretrained(config["tokenizer_path"])
     tokenizer.pad_token = tokenizer.eos_token
@@ -99,20 +112,39 @@ def train(config):
     data = load_dataset(config["data_path"])
     max_length = 1024
     train_dataset = PairwiseDataset(data["train"], tokenizer, max_length=max_length)
-    eval_dataset = PairwiseDataset(data["test"], tokenizer, max_length=max_length)
+    eval_dataset = PairwiseEvalDataset(data["test"], tokenizer, max_length=max_length)
 
     training_args = TrainingArguments(**config["train_args"])
     if config["trainer_type"] == "sparse":
-        SparsePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
-            eval_dataset=eval_dataset, data_collator=pairwise_data_collator).train()
+        trainer = SparsePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
+             data_collator=pairwise_data_collator)
     elif config["trainer_type"] == "dense":
-        DensePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
-            eval_dataset=eval_dataset, data_collator=pairwise_data_collator).train()
+        trainer = DensePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
+            data_collator=pairwise_data_collator)
     else:
-        PairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
-            eval_dataset=eval_dataset, data_collator=pairwise_data_collator).train()
+        trainer = PairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
+             data_collator=pairwise_data_collator)
+    trainer.train()
 
-    
+    # TODO(dahoas): Unsure how to compute metrics in trainer for non-classification task
+    if torch.distributed.get_rank() == 0:
+        preds = torch.tensor(trainer.predict(eval_dataset)[0])
+        print(preds.shape)
+        preds = preds.view(-1, 2)
+        samples = {"prompt": [], "chosen": [], "rejected": [], "scores": []}
+        for i in range(16):
+            ele = data["test"][i]
+            samples["prompt"].append(ele["prompt"])
+            samples["chosen"].append(ele["chosen"])
+            samples["rejected"].append(ele["rejected"])
+            samples["scores"].append(preds[i].tolist())
+        wandb.log({"samples": wandb.Table(data=pd.DataFrame(samples))})
+        # Subtracting rejected scores from chosen scores
+        diff = preds[:, 0] - preds[:, 1]
+        acc = (torch.sigmoid(diff.type(torch.float32)) >= 0.5).type(torch.float32).mean().item()
+        wandb.log({"test_acc": acc})
+        print("Testing accuracy: ", acc)
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -16,7 +16,6 @@ train_args:
   logging_dir: "./logs"
   fp16: True
   bf16: False
-  evaluation_strategy: "epoch"
 
 data_path: "Dahoas/rm-single-context"
 trainer_type: "default"

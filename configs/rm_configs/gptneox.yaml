@@ -1,9 +1,8 @@
 model_path: "EleutherAI/gpt-neox-20b"
 tokenizer_path: "EleutherAI/gpt-neox-20b"
-save_dir: "../ckpts/gptneox-sft"
 
 train_args:
-  output_dir: "../ckpts/gptneox-sft"
+  output_dir: "../ckpts/gptneox-rm"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
@@ -11,9 +10,10 @@ train_args:
   per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
+  learning_rate: 5.0e-6
   logging_dir: "./logs"
   fp16: True
   bf16: False
-  evaluation_strategy: "epoch"
 
-data_path: "Dahoas/sft-single-context"
+data_path: "Dahoas/rm-single-context"
+trainer_type: "default"
