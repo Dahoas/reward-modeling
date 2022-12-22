@@ -50,9 +50,9 @@ def make_hh():
     for ele in data:
         chosen = ele["chosen"]
         rejected = ele["rejected"]
-        prompt = "".join(chosen.split("Assistant: ")[:-1]).replace("Human: ", "")
-        chosen = chosen.split("Assistant: ")[-1]
-        rejected = rejected.split("Assistant: ")[-1]
+        prompt = "Assistant: ".join(chosen.split("Assistant: ")[:-1])
+        chosen = "Assistant: " + chosen.split("Assistant: ")[-1]
+        rejected = "Assistant: " + rejected.split("Assistant: ")[-1]
         formatted_data["prompt"].append(prompt)
         formatted_data["chosen"].append(chosen)
         formatted_data["rejected"].append(rejected)
@@ -63,10 +63,10 @@ def make_hh():
     splits.push_to_hub("Dahoas/full-hh-rlhf")
 
     # Split full dataset into sft and rm splits
-    sft_size = 40000
+    sft_size = 35000
     dataset = dataset.shuffle()
     rm_data = Dataset.from_dict(dataset[sft_size:])
-    splits = rm_data.train_test_split(test_size=0.05)
+    splits = rm_data.train_test_split(test_size=0.10)
     print(splits)
     splits.push_to_hub("Dahoas/rm-hh-rlhf")
 
@@ -127,25 +127,24 @@ def make_single_context():
     for ele in data:
         chosen = ele["chosen"]
         rejected = ele["rejected"]
-        prompt = "".join(chosen.split("Assistant: ")[:-1])
-        prompt = "".join(prompt.split("Human: ")[-2:])
-        chosen = chosen.split("Assistant: ")[-1]
-        rejected = rejected.split("Assistant: ")[-1]
+        prompt = "Assistant: ".join(chosen.split("Assistant: ")[:-1])
+        chosen = "Assistant: " + chosen.split("Assistant: ")[-1]
+        rejected = "Assistant: " + rejected.split("Assistant: ")[-1]
         formatted_data["prompt"].append(prompt)
         formatted_data["chosen"].append(chosen)
         formatted_data["rejected"].append(rejected)
 
     dataset = Dataset.from_dict(formatted_data)
-    splits = dataset.train_test_split(test_size=0.05)
+    splits = dataset.train_test_split(test_size=0.10)
     print(splits)
     compute_stats(dataset)
     splits.push_to_hub("Dahoas/full-single-context")
 
     # Split full dataset into sft and rm splits
-    sft_size = 40000
+    sft_size = 35000
     dataset = dataset.shuffle()
     rm_data = Dataset.from_dict(dataset[sft_size:])
-    splits = rm_data.train_test_split(test_size=0.05)
+    splits = rm_data.train_test_split(test_size=0.10)
     print(splits)
     compute_stats(rm_data)
     splits.push_to_hub("Dahoas/rm-single-context")
@@ -262,8 +261,8 @@ def pair_responses():
 if __name__ == "__main__":
     #hf_upload()
     #make_hh()
-    #make_single_context()
+    make_single_context()
     #zero_one_label()
     #merge_davinci_gens()
-    pair_responses()
+    #pair_responses()
     #make_single_context_supervised()

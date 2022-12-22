@@ -49,6 +49,7 @@ class PairwiseDataset(Dataset):
         self.chosen_attn_masks = []
         self.rejected_input_ids = []
         self.rejected_attn_masks = []
+        PAD_ID = tokenizer.pad_token
 
         for pair in tqdm(pairs):
             prompt = pair["prompt"]
