@@ -1,6 +1,6 @@
-model_path: "Dahoas/gptj-sft-single-context"
+model_path: "Dahoas/gptj-sft-static"
 tokenizer_path: "EleutherAI/gpt-j-6B"
-num_layers_unfrozen: -1
+num_layers_unfrozen: 0.5
 
 train_args:
   output_dir: "../ckpts/gptj-rm"
@@ -17,5 +17,5 @@ train_args:
   fp16: False
   bf16: True
 
-data_path: "Dahoas/rm-single-context"
+data_path: "Dahoas/rm-static"
 trainer_type: "default"

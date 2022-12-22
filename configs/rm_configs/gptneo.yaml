@@ -1,6 +1,6 @@
-model_path: "Dahoas/gptneo-sft-single-context"
+model_path: "Dahoas/gptneo-sft-static"
 tokenizer_path: "EleutherAI/gpt-neo-1.3B"
-num_layers_unfrozen: -1
+num_layers_unfrozen: 0.5
 
 train_args:
   output_dir: "../ckpts/gptneo-rm"
@@ -17,5 +17,5 @@ train_args:
   fp16: False
   bf16: True
 
-data_path: "Dahoas/rm-single-context"
+data_path: "Dahoas/rm-static"
 trainer_type: "default"

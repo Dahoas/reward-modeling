@@ -3,7 +3,7 @@ from tqdm import tqdm
 from data_utils import load_jsonl, dump_jsonl, compute_stats
 from transformers import AutoTokenizer
 import torch
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, DatasetDict
 
 
 #####hh-rlhf#####
@@ -13,10 +13,13 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
 def read_hh():
     data = []
+    static_train = []
+    static_test = []
     with open("datasets/hh-rlhf/helpful-base/train.jsonl", "r") as f:
         lines = f.readlines()
         for line in lines:
             data.append(json.loads(line))
+            static_train.append(json.loads(line))
     with open("datasets/hh-rlhf/helpful-online/train.jsonl", "r") as f:
         lines = f.readlines()
         for line in lines:
@@ -25,12 +28,14 @@ def read_hh():
         lines = f.readlines()
         for line in lines:
             data.append(json.loads(line))
+            static_train.append(json.loads(line))
 
     test_data = []
     with open("datasets/hh-rlhf/helpful-base/test.jsonl", "r") as f:
         lines = f.readlines()
         for line in lines:
             test_data.append(json.loads(line))
+            static_test.append(json.loads(line))
     with open("datasets/hh-rlhf/helpful-online/test.jsonl", "r") as f:
         lines = f.readlines()
         for line in lines:
@@ -39,121 +44,102 @@ def read_hh():
         lines = f.readlines()
         for line in lines:
             test_data.append(json.loads(line))
+            static_test.append(json.loads(line))
     data += test_data
 
-    return data
+    return data, static_train, static_test
+
+def extract_prompt_responses(ele):
+    chosen = ele["chosen"]
+    rejected = ele["rejected"]
+    prompt = "Assistant: ".join(chosen.split("Assistant: ")[:-1])
+    chosen = "Assistant: " + chosen.split("Assistant: ")[-1]
+    rejected = "Assistant: " + rejected.split("Assistant: ")[-1]
+    return prompt, chosen, rejected
+
+def extract_single_context_prompt_response(ele):
+    chosen = ele["chosen"]
+    rejected = ele["rejected"]
+    prompt = "Assistant: ".join(chosen.split("Assistant: ")[:-1])
+    prompt = "Human: ".join(prompt.split("Human: ")[-2:])
+    chosen = "Assistant: " + chosen.split("Assistant: ")[-1]
+    rejected = "Assistant: " + rejected.split("Assistant: ")[-1]
+    return prompt, chosen, rejected
+
+def make_sft_pariwise(train_dataset, test_dataset, name, sft_size):
+    train_dataset = train_dataset.shuffle()
+    full_dataset = DatasetDict({"train": train_dataset, "test": test_dataset})
+    full_dataset.push_to_hub("Dahoas/full-{}".format(name))
+
+    # Split full dataset into sft and rm splits
+    rm_train_dataset = Dataset.from_dict(train_dataset[sft_size:])
+    rm_dataset = DatasetDict({"train": rm_train_dataset, "test": test_dataset})
+    rm_dataset.push_to_hub("Dahoas/rm-{}".format(name))
+
+    sft_dataset = Dataset.from_dict(train_dataset[:sft_size]).remove_columns("rejected").rename_column("chosen", "response")
+    sft_dataset.push_to_hub("Dahoas/sft-{}".format(name))
+
+    print("{} statistics".format(name))
+    compute_stats(train_dataset)
+    compute_stats(sft_dataset)
+    compute_stats(rm_train_dataset)
 
 # Aggregate all hh-rlhf helpful data and create full dataset, split for sft training, split for reward model training
 def make_hh():
-    data = read_hh()
+    data, _, _ = read_hh()
     formatted_data = {"prompt": [], "chosen": [], "rejected": []}
     for ele in data:
-        chosen = ele["chosen"]
-        rejected = ele["rejected"]
-        prompt = "Assistant: ".join(chosen.split("Assistant: ")[:-1])
-        chosen = "Assistant: " + chosen.split("Assistant: ")[-1]
-        rejected = "Assistant: " + rejected.split("Assistant: ")[-1]
+        prompt, chosen, rejected = extract_prompt_responses(ele)
         formatted_data["prompt"].append(prompt)
         formatted_data["chosen"].append(chosen)
         formatted_data["rejected"].append(rejected)
 
     dataset = Dataset.from_dict(formatted_data)
-    splits = dataset.train_test_split(test_size=0.05)
-    print(splits)
-    splits.push_to_hub("Dahoas/full-hh-rlhf")
-
-    # Split full dataset into sft and rm splits
-    sft_size = 35000
-    dataset = dataset.shuffle()
-    rm_data = Dataset.from_dict(dataset[sft_size:])
-    splits = rm_data.train_test_split(test_size=0.10)
-    print(splits)
-    splits.push_to_hub("Dahoas/rm-hh-rlhf")
-
-    sft_data = Dataset.from_dict(dataset[:sft_size]).remove_columns("rejected").rename_column("chosen", "response")
-    print(sft_data)
-    sft_data.push_to_hub("Dahoas/sft-hh-rlhf")
-
-
-# Make prompt dataset: Just take first dialogue from human
-def make_hh_prompts(data):
-    prompts = []
-    for line in data:
-        prompt = line['chosen'].split('Human:')[1].split('Assistant:')[0]
-        prompts.append({'prompt': prompt})
-
-    with open("prompts.jsonl","w") as f:
-        for prompt in prompts:
-            json.dump(prompt, f)
-            f.write('\n')
-
-    print(len(prompts))
+    split = dataset.train_test_split(test_size=0.10)
+    train_dataset = split["train"]
+    test_dataset = split["test"]
+    make_sft_pariwise(train_dataset, test_dataset, "hh-rlhf", 35000)
     
-
-def make_hh_supervised(data):
-    prompts = []
-    for line in tqdm(data):
-        chosen = line["chosen"]
-        # Extract the last two dialogue blocks
-        chosen_dialogue = "".join(chosen.split("Human:")[1:][-2:]).replace("Assistant:", "")
-        if len(tokenizer(chosen_dialogue)["input_ids"]) > 1024:
-            # Only take last dialogue block if last two is too long
-            chosen_dialogue = "".join(chosen.split("Human:")[1:][-1]).replace("Assistant:", "")
-        prompts.append({"prompt": chosen_dialogue})
-
-    name = "single_context_chosen"
-    with open(name+".jsonl","w") as f:
-        for prompt in prompts:
-            json.dump(prompt, f)
-            f.write('\n')
-
-    print(len(prompts))
-    lens = torch.tensor([len(prompt['prompt']) for prompt in prompts], dtype=torch.float32)
-    avg_len = torch.mean(lens).item()
-    std_len = torch.std(lens).item()
-    left_tail = torch.sum(lens < avg_len + std_len) / len(lens)
-    stats = {
-        "avg_len": avg_len,
-        "std_len": std_len,
-        "left_tail": left_tail
-    }
-    print(stats)
-
 
 # In single context we include only the last two rounds of dialogue
 def make_single_context():
-    data = read_hh()
+    data, _, _ = read_hh()
     formatted_data = {"prompt": [], "chosen": [], "rejected": []}
     for ele in data:
-        chosen = ele["chosen"]
-        rejected = ele["rejected"]
-        prompt = "Assistant: ".join(chosen.split("Assistant: ")[:-1])
-        chosen = "Assistant: " + chosen.split("Assistant: ")[-1]
-        rejected = "Assistant: " + rejected.split("Assistant: ")[-1]
+        prompt, chosen, rejected = extract_single_context_prompt_response(ele)
         formatted_data["prompt"].append(prompt)
         formatted_data["chosen"].append(chosen)
         formatted_data["rejected"].append(rejected)
 
     dataset = Dataset.from_dict(formatted_data)
-    splits = dataset.train_test_split(test_size=0.10)
-    print(splits)
-    compute_stats(dataset)
-    splits.push_to_hub("Dahoas/full-single-context")
+    split = dataset.train_test_split(test_size=0.10)
+    train_dataset = split["train"]
+    test_dataset = split["test"]
+    make_sft_pariwise(train_dataset, test_dataset, "single-context", 35000)
 
-    # Split full dataset into sft and rm splits
-    sft_size = 35000
-    dataset = dataset.shuffle()
-    rm_data = Dataset.from_dict(dataset[sft_size:])
-    splits = rm_data.train_test_split(test_size=0.10)
-    print(splits)
-    compute_stats(rm_data)
-    splits.push_to_hub("Dahoas/rm-single-context")
 
-    sft_data = Dataset.from_dict(dataset[:sft_size]).remove_columns("rejected").rename_column("chosen", "response")
-    print(sft_data)
-    compute_stats(sft_data)
-    sft_data.push_to_hub("Dahoas/sft-single-context")
+# Dataset without online data tranche
+# No need to make single context since most of this data is <1024 tokens
+def make_static():
+    _, static_train, static_test = read_hh()
+    formatted_data = {"prompt": [], "chosen": [], "rejected": []}
+    formatted_data_test = {"prompt": [], "chosen": [], "rejected": []}
 
+    for ele in static_train:
+        prompt, chosen, rejected = extract_prompt_responses(ele)
+        formatted_data["prompt"].append(prompt)
+        formatted_data["chosen"].append(chosen)
+        formatted_data["rejected"].append(rejected)
+
+    for ele in static_test:
+        prompt, chosen, rejected = extract_prompt_responses(ele)
+        formatted_data_test["prompt"].append(prompt)
+        formatted_data_test["chosen"].append(chosen)
+        formatted_data_test["rejected"].append(rejected)
+
+    train_dataset = Dataset.from_dict(formatted_data)
+    test_dataset = Dataset.from_dict(formatted_data_test)
+    make_sft_pariwise(train_dataset, test_dataset, "static", 20000)
 
 
 #####Question Generation#####
@@ -261,7 +247,8 @@ def pair_responses():
 if __name__ == "__main__":
     #hf_upload()
     #make_hh()
-    make_single_context()
+    #make_single_context()
+    make_static()
     #zero_one_label()
     #merge_davinci_gens()
     #pair_responses()

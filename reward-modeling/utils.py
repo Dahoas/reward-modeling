@@ -3,6 +3,7 @@ from transformers import AutoModelForCausalLM, AutoConfig, AutoModelForSequenceC
 from torch import nn
 import functools
 from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
+import os
 
 
 def load_yaml(config_path):
@@ -85,7 +86,7 @@ def freeze_bottom_causal_layers(model: nn.Module, num_layers_unfrozen):
 
 
 def make_rm(model_name):
-    config = AutoConfig.from_pretrained("gpt2")
+    config = AutoConfig.from_pretrained(model_name)
     config.num_labels = 1
     reward_model = AutoModelForSequenceClassification.from_config(config)
     return reward_model
@@ -98,14 +99,37 @@ def upload_model():
 
 
 def convert_deepspeed_checkpoint(is_rm=True):
-    model_name = None
-    model_path = None
+    model_name = "EleutherAI/gpt-j-6B"
+    model_path = "../ckpts/gptj-rm"
+    model_ckpt = "checkpoint-9531/"
     if is_rm:
         model = make_rm(model_name)
     else:
-        AutoModel.from_pretrained(model_name)
-    fp32_model = load_state_dict_from_zero_checkpoint(model, 'results/checkpoint-134')
+        model = AutoModel.from_pretrained(model_name)
+    fp32_model = load_state_dict_from_zero_checkpoint(model, os.path.join(model_path, model_ckpt))
+    fp32_model.save_pretrained(os.path.join(model_path, "hf_ckpt"))
 
+def hf_upload():
+    import os
+    from huggingface_hub import HfApi, create_repo
+    converted_ckpt = "../ckpts/gptj-rm/hf_ckpt/"
+    repo_name = "Dahoas/gptj-rm-static"
+    #create_repo(repo_name, repo_type="model", private=False)
+
+    files = os.listdir(converted_ckpt)
+    api = HfApi()
+    print(f"to upload: {files}")
+    for file in files:
+        print(f"Uploading {file}...")
+        api.upload_file(
+            path_or_fileobj=os.path.join(converted_ckpt, file),
+            path_in_repo=file,
+            repo_id=repo_name,
+            repo_type="model",
+            commit_message=f"Upload {file}",
+        )
+        print(f"Successfully uploaded {file} !")
 
 if __name__ == "__main__":
-    upload_model()
+    convert_deepspeed_checkpoint(is_rm=True)
+    hf_upload()

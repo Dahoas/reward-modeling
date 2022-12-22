@@ -1,12 +1,12 @@
-model_path: "Dahoas/gpt2-sft-single-context"
+model_path: "Dahoas/gpt2-sft-static"
 tokenizer_path: "gpt2"
-num_layers_unfrozen: -1
+num_layers_unfrozen: 0.5
 
 train_args:
   output_dir: "../ckpts/gpt2-rm"
-  num_train_epochs: .05
+  num_train_epochs: 1
   logging_steps: 100
-  save_strategy: "no"
+  save_strategy: "epoch"
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 4
   warmup_steps: 100
@@ -17,5 +17,5 @@ train_args:
   fp16: True
   bf16: False
 
-data_path: "Dahoas/rm-single-context"
+data_path: "Dahoas/rm-static"
 trainer_type: "default"

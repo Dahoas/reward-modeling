@@ -4,7 +4,7 @@ save_dir: "../ckpts/gptneo-sft"
 
 train_args:
   output_dir: "../ckpts/gptneo-sft"
-  num_train_epochs: 3
+  num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
   per_device_train_batch_size: 3
@@ -18,4 +18,4 @@ train_args:
   bf16: False
   evaluation_strategy: "epoch"
 
-data_path: "Dahoas/sft-single-context"
+data_path: "Dahoas/sft-static"
