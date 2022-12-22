@@ -4,14 +4,14 @@ num_layers_unfrozen: -1
 
 train_args:
   output_dir: "../ckpts/gptj-rm"
-  num_train_epochs: 3
+  num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
-  learning_rate: 1.0e-4
+  learning_rate: 1.0e-5
   save_total_limit: 1
   logging_dir: "./logs"
   fp16: False

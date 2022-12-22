@@ -125,12 +125,13 @@ def train(config):
         samples["chosen"].append(ele["chosen"])
         samples["rejected"].append(ele["rejected"])
         samples["scores"].append(preds[i].tolist())
-    wandb.log({"samples": wandb.Table(data=pd.DataFrame(samples))})
     # Subtracting rejected scores from chosen scores
     diff = preds[:, 0] - preds[:, 1]
     acc = (torch.sigmoid(diff.type(torch.float32)) >= 0.5).type(torch.float32).mean().item()
     print("Testing accuracy: ", acc)
-    wandb.log("acc": acc)
+    if torch.distributed.get_rank() == 0:
+        wandb.log({"samples": wandb.Table(data=pd.DataFrame(samples))})
+        wandb.log({"acc": acc})
         
 
 if __name__ == "__main__":
