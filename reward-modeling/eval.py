@@ -1,13 +1,14 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from data_utils import load_prompts
 import json
 import torch
-from reward_model import GPTRewardModel
 from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
 from torch.utils.data import Dataset, random_split
 from tqdm import tqdm
-from logger import Logger
-
+import deepspeed
+from transformers import AutoTokenizer, TrainingArguments, Trainer, AutoModelForCausalLM, IntervalStrategy, AutoModel, AutoConfig, PreTrainedModel, AutoModelForSequenceClassification
+from rm_datasets import PairwiseDataset, PairwiseEvalDataset, pairwise_data_collator
+from datasets import load_dataset
+from utils import make_rm
 
 def load_jsonl(filename):
 	data = []
@@ -50,77 +51,43 @@ def eval_supervised():
     eval(supervised_gptj, tokenizer, prompts, "supervised_gptj_evals.jsonl", gen_kwargs)
 
 
-class PairwiseDataset(Dataset):
-    def __init__(self, pairs, tokenizer, max_length):
-        self.chosen_input_ids = []
-        self.chosen_attn_masks = []
-        self.rejected_input_ids = []
-        self.rejected_attn_masks = []
-        for pair in pairs:
-            chosen, rejected = pair["chosen"], pair["rejected"]
-            chosen_encodings_dict = tokenizer('<|startoftext|>' + chosen + '<|endoftext|>', truncation=True,
-                                       max_length=max_length, padding="max_length", return_tensors="pt")
-            rejected_encodings_dict = tokenizer('<|startoftext|>' + rejected + '<|endoftext|>', truncation=True,
-                                       max_length=max_length, padding="max_length", return_tensors="pt")
-            self.chosen_input_ids.append(chosen_encodings_dict['input_ids'])
-            self.chosen_attn_masks.append(chosen_encodings_dict['attention_mask'])
-            self.rejected_input_ids.append(rejected_encodings_dict['input_ids'])
-            self.rejected_attn_masks.append(rejected_encodings_dict['attention_mask'])
 
-    def __len__(self):
-        return len(self.chosen_input_ids)
-
-    def __getitem__(self, idx):
-        return self.chosen_input_ids[idx], self.chosen_attn_masks[idx], self.rejected_input_ids[idx], self.rejected_attn_masks[idx]
-
-def data_collator(data):
-    return {'input_ids': torch.cat([f[0] for f in data] + [f[2] for f in data]),
-            'attention_mask': torch.cat([f[1] for f in data] + [f[3] for f in data])}
-
-def eval_rm():
-    data = []
-    dataset_name = "single_context_pairwise_test"
-    with open(dataset_name + ".jsonl", "r") as f:
-        lines = f.readlines()
-        for line in lines:
-            loaded_line = json.loads(line)
-            data.append(loaded_line)
-    print("Len data: ", len(data))
-
-    tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-2.7B")
+# Launch with: deepspeed --num_gpus 1 eval.py
+def eval_rm_acc(use_deepspeed=False):
+    tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-1.3B")
     tokenizer.pad_token = tokenizer.eos_token
+    #model = AutoModelForSequenceClassification.from_pretrained("Dahoas/gptj-rm-static")
+    model_name = "EleutherAI/gpt-neo-1.3B"
+    model = make_rm(model_name, "causal")
+    model.load_state_dict(torch.load("../ckpts/gptneo-rm/hf_ckpt.pt"))
+    model.config.pad_token_id = model.config.eos_token_id
+    world_size = 1
+    if use_deepspeed:
+        model = deepspeed.init_inference(model,
+                                                mp_size=world_size,
+                                                dtype=torch.float,
+                                                replace_method='auto',
+                            replace_with_kernel_inject=True)
+    else:
+        model.eval()
+        model.half()
+        model.cuda()
+
+    data = load_dataset("Dahoas/rm-static")
     max_length = 1024
-
-    dataset = PairwiseDataset(data, tokenizer, max_length=max_length)
-    batch_size = 24
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=data_collator)
-
-    model = GPTRewardModel("EleutherAI/gpt-neo-2.7B")
-    model.load_state_dict(torch.load("ckpts/single_context_pairwise/gpt-neo2.7B-one-epoch.pt"))
-    model.half() # Converts to fp16 for faster inference
-    model.eval()
-    model.cuda()
-
-    def gen(inputs):
-        input_ids = inputs["input_ids"].to("cuda")
-        #print(torch.cuda.memory_summary())
-        with torch.no_grad():
-            output = model(input_ids)
-        # Correct reward score is last element - unless there are issues with padding?
-        rewards = output[:, -1]
-        return rewards
+    eval_dataset = PairwiseDataset(data["test"], tokenizer, max_length=max_length)
+    batch_size = 1
+    dataloader = torch.utils.data.DataLoader(eval_dataset, batch_size=batch_size, collate_fn=pairwise_data_collator)
 
     cnt = 0
     for i, batch in tqdm(enumerate(dataloader)):
-        #if i > 1000:
-        #    break
-        rewards = gen(batch)
+        input_ids = batch["input_ids"].cuda()
+        attention_mask = batch["attention_mask"].cuda()
+        rewards = model(input_ids, attention_mask=attention_mask)
         chosen_rewards = rewards[:rewards.shape[0] // 2]
         rejected_rewards = rewards[rewards.shape[0] // 2:]
-        #torch.cuda.empty_cache()
         cnt += torch.sum(chosen_rewards > rejected_rewards).item()
-        #print(torch.cuda.memory_summary())
-    print(cnt / len(data))
+    print(cnt / len(data["test"]))
 
 
 def label():
@@ -178,11 +145,6 @@ def label():
 
 
 
-def save_as_fp32():
-    model = GPTRewardModel("EleutherAI/gpt-j-6B")
-    model = load_state_dict_from_zero_checkpoint(model, "ckpts/single_context_pairwise/gpt-j/checkpoint-66525")
-    torch.save(model.state_dict(), "ckpts/single_context_pairwise/gpt-j.pt")
-
 def gen_candidates():
     Logger.init("gptj_completions")
 
@@ -220,6 +182,6 @@ def gen_candidates():
 
 if __name__ == "__main__":
     #label()
-    #eval_rm()
+    eval_rm_acc()
     #save_as_fp32()
-    gen_candidates()
+    #gen_candidates()

@@ -20,21 +20,17 @@ class SparsePairwiseTrainer(Trainer):
         bs = inputs["input_ids"].shape[0] // 2
         chosen = inputs["input_ids"][:bs]
         rejected = inputs["input_ids"][bs:]
-        rewards = model(**inputs).logits
+        rewards = model(**inputs)
+        print(rewards.shape)
         chosen_rewards = rewards[:bs]
         rejected_rewards = rewards[bs:]
         # compute pairwise loss. Only backprop on last value before padding
         loss = 0
         for i in range(bs):
-            # Retrieve first index where trajectories diverge
-            divergence_ind = (chosen[i] != rejected[i]).nonzero()[0].item()
-            assert divergence_ind > 0
             # Input tokens should be truncated to have endoftext padding
             c_end = (chosen[i] == PAD_ID).nonzero()[0].item()
             r_end = (rejected[i] == PAD_ID).nonzero()[0].item()
-            print(c_end, r_end)
             # Index into correct reward
-            print(chosen_rewards[i].shape)
             c_truncated_reward = chosen_rewards[i, c_end]
             r_truncated_reward = rejected_rewards[i, r_end]
             loss += -torch.log(torch.sigmoid(c_truncated_reward - r_truncated_reward)).mean()
@@ -50,7 +46,7 @@ class DensePairwiseTrainer(Trainer):
         bs = inputs["input_ids"].shape[0] // 2
         chosen = inputs["input_ids"][:bs]
         rejected = inputs["input_ids"][bs:]
-        rewards = model(**inputs).logits
+        rewards = model(**inputs)
         chosen_rewards = rewards[:bs]
         rejected_rewards = rewards[bs:]
         # compute pairwise loss. Only backprop on last value before padding
@@ -91,7 +87,7 @@ def train(config):
     tokenizer = AutoTokenizer.from_pretrained(config["tokenizer_path"])
     tokenizer.pad_token = tokenizer.eos_token
     training_args = TrainingArguments(**config["train_args"])
-    model = make_rm(config["model_path"])
+    model = make_rm(config["model_path"], config["model_type"])
     freeze_bottom_causal_layers(model, config["num_layers_unfrozen"])
     PAD_ID = tokenizer(tokenizer.pad_token)["input_ids"][0]
     model.PAD_ID = PAD_ID
@@ -100,7 +96,12 @@ def train(config):
     data = load_dataset(config["data_path"])
     max_length = 1024
     train_dataset = PairwiseDataset(data["train"], tokenizer, max_length=max_length)
-    eval_dataset = PairwiseEvalDataset(data["test"], tokenizer, max_length=max_length)
+    if data.get("test") is not None:
+        eval_dataset = PairwiseEvalDataset(data["test"], tokenizer, max_length=max_length)
+    else:
+        split = data["train"].train_test_split(test_size=0.10)
+        train_dataset = PairwiseDataset(split["train"], tokenizer, max_length=max_length)
+        eval_dataset = PairwiseEvalDataset(split["test"], tokenizer, max_length=max_length)
 
     training_args = TrainingArguments(**config["train_args"])
     if config["trainer_type"] == "sparse":

@@ -77,20 +77,22 @@ class MaskedSFTDataset(Dataset):
 
 
 class PairwiseDataset(Dataset):
-    def __init__(self, pairs, tokenizer, max_length):
+    def __init__(self, pairs, tokenizer, max_length, max_num=-1):
         self.chosen_input_ids = []
         self.chosen_attn_masks = []
         self.rejected_input_ids = []
         self.rejected_attn_masks = []
         PAD_ID = tokenizer.pad_token
 
-        for pair in tqdm(pairs):
+        for i, pair in enumerate(tqdm(pairs)):
+            if max_num >= 0 and i > max_num:
+                break
             prompt = pair["prompt"]
             chosen, rejected = pair["chosen"], pair["rejected"]
             tok_chosen = tokenizer(prompt + chosen + "<|endoftext|>", return_tensors="pt")["input_ids"]
             tok_rejected = tokenizer(prompt + rejected + "<|endoftext|>", return_tensors="pt")["input_ids"]
             # Reject data with num tokens > max_length
-            if tok_chosen.shape[-1] <= max_length and tok_rejected.shape[-1] <= max_length:
+            if tok_chosen.shape[-1] <= max_length and tok_rejected.shape[-1] <= max_length and chosen != rejected:
                 chosen_encodings_dict = tokenizer(prompt + chosen + '<|endoftext|>', truncation=True,
                                         max_length=max_length, padding="max_length", return_tensors="pt")
                 rejected_encodings_dict = tokenizer(prompt + rejected + '<|endoftext|>', truncation=True,
