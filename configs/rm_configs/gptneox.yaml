@@ -3,7 +3,7 @@ tokenizer_path: "EleutherAI/gpt-neox-20b"
 num_layers_unfrozen: -1
 
 train_args:
-  output_dir: "../ckpts/gptneox-rm"
+  output_dir: "/fsx/alex/ckpts/gptneox-rm"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"

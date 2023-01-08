@@ -18,24 +18,11 @@ class SparsePairwiseTrainer(Trainer):
         PAD_ID = model.PAD_ID
         assert len(inputs["input_ids"].shape) == 2
         bs = inputs["input_ids"].shape[0] // 2
-        chosen = inputs["input_ids"][:bs]
-        rejected = inputs["input_ids"][bs:]
         rewards = model(**inputs)
-        print(rewards.shape)
         chosen_rewards = rewards[:bs]
         rejected_rewards = rewards[bs:]
-        # compute pairwise loss. Only backprop on last value before padding
-        loss = 0
-        for i in range(bs):
-            # Input tokens should be truncated to have endoftext padding
-            c_end = (chosen[i] == PAD_ID).nonzero()[0].item()
-            r_end = (rejected[i] == PAD_ID).nonzero()[0].item()
-            # Index into correct reward
-            c_truncated_reward = chosen_rewards[i, c_end]
-            r_truncated_reward = rejected_rewards[i, r_end]
-            loss += -torch.log(torch.sigmoid(c_truncated_reward - r_truncated_reward)).mean()
-        loss = loss / bs
-        return (loss, outputs) if return_outputs else loss
+        loss = -torch.log(torch.sigmoid(chosen_rewards - rejected_rewards)).mean()
+        return (loss, rewards) if return_outputs else loss
 
 
 class DensePairwiseTrainer(Trainer):
@@ -83,11 +70,20 @@ class PairwiseTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
+def compute_metrics(eval_preds):
+    print("EVAL!!!")
+    preds = eval_preds.predictions[0].view(-1, 2)
+    acc = sum(preds[:, 0] >= preds[:, 1]) / preds.shape[0]
+    if torch.distributed.get_rank() == 0:
+        wandb.log({"acc": acc})
+    return {"accuracy": acc}
+
+
 def train(config):
     tokenizer = AutoTokenizer.from_pretrained(config["tokenizer_path"])
     tokenizer.pad_token = tokenizer.eos_token
     training_args = TrainingArguments(**config["train_args"])
-    model = make_rm(config["model_path"], config["model_type"])
+    model = make_rm(config["model_path"], config["model_type"], config["tokenizer_path"])
     freeze_bottom_causal_layers(model, config["num_layers_unfrozen"])
     PAD_ID = tokenizer(tokenizer.pad_token)["input_ids"][0]
     model.PAD_ID = PAD_ID
@@ -95,7 +91,7 @@ def train(config):
 
     data = load_dataset(config["data_path"])
     max_length = 1024
-    train_dataset = PairwiseDataset(data["train"], tokenizer, max_length=max_length)
+    train_dataset = PairwiseDataset(data["train"], tokenizer, max_length=max_length, max_num=config["max_train_size"])
     if data.get("test") is not None:
         eval_dataset = PairwiseEvalDataset(data["test"], tokenizer, max_length=max_length)
     else:
@@ -105,8 +101,8 @@ def train(config):
 
     training_args = TrainingArguments(**config["train_args"])
     if config["trainer_type"] == "sparse":
-        trainer = SparsePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
-             data_collator=pairwise_data_collator)
+        trainer = SparsePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset, compute_metrics=compute_metrics,
+             eval_dataset=eval_dataset, data_collator=pairwise_data_collator)
     elif config["trainer_type"] == "dense":
         trainer = DensePairwiseTrainer(model=model, args=training_args, train_dataset=train_dataset,
             data_collator=pairwise_data_collator)
@@ -115,7 +111,8 @@ def train(config):
              data_collator=pairwise_data_collator)
     trainer.train()
 
-    # TODO(dahoas): Unsure how to compute metrics in trainer for non-classification task
+    # NOTE: In order to run this install transformers from source
+    # per https://github.com/huggingface/transformers/issues/20942
     preds = torch.tensor(trainer.predict(eval_dataset)[0])
     print(preds.shape)
     preds = preds.view(-1, 2)
@@ -128,7 +125,7 @@ def train(config):
         samples["scores"].append(preds[i].tolist())
     # Subtracting rejected scores from chosen scores
     diff = preds[:, 0] - preds[:, 1]
-    acc = (torch.sigmoid(diff.type(torch.float32)) >= 0.5).type(torch.float32).mean().item()
+    acc = (diff >= 0).type(torch.float32).mean().item()
     print("Testing accuracy: ", acc)
     if torch.distributed.get_rank() == 0:
         wandb.log({"samples": wandb.Table(data=pd.DataFrame(samples))})
@@ -141,9 +138,11 @@ if __name__ == "__main__":
     parser.add_argument("--ds_config_path", type=str)
     parser.add_argument("--deepspeed", type=str)
     parser.add_argument("--local_rank", type=int)
+    parser.add_argument("--max_train_size", type=int, default=-1)
     args = parser.parse_args()
 
     config = load_yaml(args.config_path)
     config["train_args"]["deepspeed"] = args.ds_config_path
+    config["max_train_size"] = args.max_train_size
 
     train(config)

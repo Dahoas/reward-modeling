@@ -1,10 +1,9 @@
-model_path: "Dahoas/gptneo-sft-static"
-model_type: "causal"
-tokenizer_path: "EleutherAI/gpt-neo-1.3B"
+model_type: "gpt2-xl"
+tokenizer_path: "gpt2"
 num_layers_unfrozen: 0.67
 
 train_args:
-  output_dir: "/fsx/alex/ckpts/gptneo-rm"
+  output_dir: "/fsx/alex/ckpts/gpt2xl-rm"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
@@ -19,4 +18,4 @@ train_args:
   bf16: True
 
 data_path: "Dahoas/rm-static"
-trainer_type: "sparse"
+trainer_type: "default"

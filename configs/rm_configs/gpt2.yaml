@@ -1,11 +1,14 @@
 model_path: "Dahoas/gpt2-sft-static"
+model_type: "causal"
 tokenizer_path: "gpt2"
-num_layers_unfrozen: 0.5
+num_layers_unfrozen: 0.75
 
 train_args:
-  output_dir: "../ckpts/gpt2-rm"
+  output_dir: "/fsx/alex/ckpts/gpt2-rm"
   num_train_epochs: 1
   logging_steps: 100
+  eval_steps: 100
+  evaluation_strategy: "steps"
   save_strategy: "epoch"
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 4
@@ -18,4 +21,4 @@ train_args:
   bf16: False
 
 data_path: "Dahoas/rm-static"
-trainer_type: "default"
+trainer_type: "sparse"

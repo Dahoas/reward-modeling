@@ -87,13 +87,13 @@ def freeze_bottom_causal_layers(model: nn.Module, num_layers_unfrozen):
         layer.requires_grad_(False)
 
 
-def make_rm(model_name, type_t):
+def make_rm(model_name, type_t, tok_path):
     if type_t == "classification":
         config = AutoConfig.from_pretrained(model_name)
         config.num_labels = 1
         reward_model = AutoModelForSequenceClassification.from_config(config)
     elif type_t == "causal":
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(tok_path)
         reward_model = RewardModel(model_name, tokenizer(tokenizer.eos_token)["input_ids"][0])
     else:
         raise ValueError("Unsupported reward model type {}".format(type_t))
@@ -107,24 +107,24 @@ def upload_model():
 
 
 def convert_deepspeed_checkpoint(is_rm=True):
-    model_name = "EleutherAI/gpt-neo-1.3B"
-    model_path = "../ckpts/gptneo-rm"
-    model_ckpt = "checkpoint-4731/"
+    model_name = "EleutherAI/gpt-j-6B"
+    model_path = "/fsx/alex/ckpts/gptj-rm"
+    model_ckpt = "checkpoint-9461/"
     type_t = "causal"
     if is_rm:
-        model = make_rm(model_name, type_t)
+        model = make_rm(model_name, type_t, model_name)
     else:
         model = AutoModel.from_pretrained(model_name)
     fp32_model = load_state_dict_from_zero_checkpoint(model, os.path.join(model_path, model_ckpt))
     if type_t == "causal":
-        torch.save(model.state_dict(), os.path.join(model_path, "hf_ckpt.pt"))
+        torch.save(model.state_dict(), os.path.join(model_path, "hf_ckpt/hf_ckpt.pt"))
     else:
         fp32_model.save_pretrained(os.path.join(model_path, "hf_ckpt"))
 
 def hf_upload(make_repo=True):
     import os
     from huggingface_hub import HfApi, create_repo
-    converted_ckpt = "../ckpts/gptj-rm/hf_ckpt/"
+    converted_ckpt = "/fsx/alex/ckpts/gptj-rm/hf_ckpt"
     repo_name = "Dahoas/gptj-rm-static"
     if make_repo:
         create_repo(repo_name, repo_type="model", private=False)
@@ -144,5 +144,5 @@ def hf_upload(make_repo=True):
         print(f"Successfully uploaded {file} !")
 
 if __name__ == "__main__":
-    convert_deepspeed_checkpoint(is_rm=True)
-    #hf_upload(make_repo=True)
+    #convert_deepspeed_checkpoint(is_rm=True)
+    hf_upload(make_repo=False)

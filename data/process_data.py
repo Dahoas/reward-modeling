@@ -229,12 +229,14 @@ def pair_responses():
     rejected = []
     for prompt, response in tqdm(instruct_data.items()):
         for gptj_prompt, gptj_response in gptj_data.items():
-            if prompt in gptj_prompt:
+            if gptj_prompt in prompt:
                 prompts.append(prompt)
                 chosen.append(response)
                 rejected.append(gptj_response)
                 gptj_data.pop(gptj_prompt)
                 break
+
+    print(len(prompts))
     
     dataset = Dataset.from_dict({"prompt": prompts, "chosen": chosen, "rejected": rejected})
     dataset.push_to_hub("Dahoas/synthetic-instruct-gptj-pairwise")
@@ -248,8 +250,8 @@ if __name__ == "__main__":
     #hf_upload()
     #make_hh()
     #make_single_context()
-    make_static()
+    #make_static()
     #zero_one_label()
     #merge_davinci_gens()
-    #pair_responses()
+    pair_responses()
     #make_single_context_supervised()

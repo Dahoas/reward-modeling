@@ -1,5 +1,4 @@
 model_path: "Dahoas/gptj-sft-static"
-model_type: "causal"
 tokenizer_path: "EleutherAI/gpt-j-6B"
 num_layers_unfrozen: 0.5
 
@@ -12,11 +11,11 @@ train_args:
   per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
-  learning_rate: 1.0e-5
+  learning_rate: 5.0e-5
   save_total_limit: 1
   logging_dir: "./logs"
   fp16: False
   bf16: True
 
-data_path: "Dahoas/rm-static"
-trainer_type: "sparse"
+data_path: "Dahoas/synthetic-instruct-gptj-pairwise"
+trainer_type: "default"
