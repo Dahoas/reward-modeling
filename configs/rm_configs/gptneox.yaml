@@ -1,6 +1,7 @@
 model_path: "EleutherAI/gpt-neox-20b"
+model_type: "causal"
 tokenizer_path: "EleutherAI/gpt-neox-20b"
-num_layers_unfrozen: -1
+num_layers_unfrozen: 0.5
 
 train_args:
   output_dir: "/fsx/alex/ckpts/gptneox-rm"
@@ -11,10 +12,10 @@ train_args:
   per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
-  learning_rate: 5.0e-6
+  learning_rate: 1.0e-5
   logging_dir: "./logs"
   fp16: True
   bf16: False
 
-data_path: "Dahoas/rm-single-context"
-trainer_type: "default"
+data_path: "Dahoas/rm-static"
+trainer_type: "sparse"

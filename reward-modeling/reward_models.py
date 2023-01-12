@@ -15,8 +15,11 @@ class RewardModel(nn.Module):
         self.config = model.config
         # gpt-neo models have hidden_size instead of n_embd
         self.config.n_embd = self.config.hidden_size if hasattr(self.config, "hidden_size") else self.config.n_embd
-        self.transformer = model.transformer
-        self.v_head = nn.Linear(self.config.n_embd, 1, bias=False)
+        self.transformer = model.gpt_neox if hasattr(model, "gpt_neox") else model.transformer
+        dtype = self.config.torch_dtype if hasattr(self.config, "torch_dtype") is not None else torch.float32
+        dtype = torch.float16 if dtype == "float16" else torch.float32
+        print("dtype: ", dtype)
+        self.v_head = nn.Linear(self.config.n_embd, 1, bias=False, dtype=torch.float16)
         self.PAD_ID = PAD_ID
 
 

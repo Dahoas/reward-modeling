@@ -90,14 +90,17 @@ def train(config):
     model.config.pad_token_id = model.config.eos_token_id
 
     data = load_dataset(config["data_path"])
+    train_data = data["train"]
     max_length = 1024
-    train_dataset = PairwiseDataset(data["train"], tokenizer, max_length=max_length, max_num=config["max_train_size"])
     if data.get("test") is not None:
-        eval_dataset = PairwiseEvalDataset(data["test"], tokenizer, max_length=max_length)
+        eval_data = data["test"]
+        train_dataset = PairwiseDataset(train_data, tokenizer, max_length=max_length, max_num=config["max_train_size"])
+        eval_dataset = PairwiseEvalDataset(eval_data, tokenizer, max_length=max_length)
     else:
-        split = data["train"].train_test_split(test_size=0.10)
-        train_dataset = PairwiseDataset(split["train"], tokenizer, max_length=max_length)
-        eval_dataset = PairwiseEvalDataset(split["test"], tokenizer, max_length=max_length)
+        split = data["train"].train_test_split(test_size=0.05)
+        eval_data = split["test"]
+        train_dataset = PairwiseDataset(split["train"], tokenizer, max_length=max_length, max_num=config["max_train_size"])
+        eval_dataset = PairwiseEvalDataset(eval_data, tokenizer, max_length=max_length)
 
     training_args = TrainingArguments(**config["train_args"])
     if config["trainer_type"] == "sparse":
@@ -114,11 +117,10 @@ def train(config):
     # NOTE: In order to run this install transformers from source
     # per https://github.com/huggingface/transformers/issues/20942
     preds = torch.tensor(trainer.predict(eval_dataset)[0])
-    print(preds.shape)
     preds = preds.view(-1, 2)
     samples = {"prompt": [], "chosen": [], "rejected": [], "scores": []}
     for i in range(16):
-        ele = data["test"][i]
+        ele = eval_data[i]
         samples["prompt"].append(ele["prompt"])
         samples["chosen"].append(ele["chosen"])
         samples["rejected"].append(ele["rejected"])

@@ -4,6 +4,9 @@ from data_utils import load_jsonl, dump_jsonl, compute_stats
 from transformers import AutoTokenizer
 import torch
 from datasets import load_dataset, Dataset, DatasetDict
+import random
+import numpy as np
+import re
 
 
 #####hh-rlhf#####
@@ -160,13 +163,20 @@ def questions():
                 f.write("\n")
 
 def extract_prompts():
-    data = load_jsonl("synthetic_alignment_prompts.jsonl")
+    data = load_jsonl("next_synthetic_prompts.jsonl")
     data = [prompt["response"] for prompt in data]
     prompts = []
+    cnt = 0
     for line in data:
-        prompts += re.split("\d\.", line)[1:]
-    prompts = [{"prompt": prompt} for prompt in prompts]
-    dump_jsonl("extracted_synthetic_alignment_prompts.jsonl", prompts)
+        try:
+            samples = re.split("\d\.", line)[2:]
+            for sample in samples:
+                prompts.append(sample.strip())
+        except:
+            cnt += 1
+    print(cnt)
+    dataset = Dataset.from_dict({"prompt": prompts})
+    dataset.push_to_hub("Dahoas/next_synthetic_prompts")
 
 
 def score_synthetic_preference():
@@ -209,7 +219,6 @@ def hf_upload():
     dataset = Dataset.from_dict(dataset)
     dataset.push_to_hub("Dahoas/sft-gptj-synthetic-prompt-responses")
 
-
 def pair_responses():
     dataset_one = "Dahoas/instruct-synthetic-prompt-responses"
     dataset_two = "Dahoas/sft-gptj-synthetic-prompt-responses"
@@ -241,9 +250,130 @@ def pair_responses():
     dataset = Dataset.from_dict({"prompt": prompts, "chosen": chosen, "rejected": rejected})
     dataset.push_to_hub("Dahoas/synthetic-instruct-gptj-pairwise")
 
+def adjust_pairwise():
+    def clean(text):
+        text = text.strip()
+        if len(text) > 0:
+            if not text[0].isalpha():
+                text = text[1:]
+            if len(text) > 0 and not text[-1].isalpha():
+                text = text[:-1]
+        return text.strip() + "."
+
+    dataset = load_dataset("Dahoas/synthetic-instruct-gptj-pairwise")["train"]
+    prompts, chosen, rejected = [], [], []
+    for sample in dataset:
+        prompts.append(clean(sample["prompt"]))
+        chosen.append(clean(sample["chosen"]))
+        rejected.append(clean(sample["rejected"]))
+    dataset = Dataset.from_dict({"prompt": prompts, "chosen": chosen, "rejected": rejected})
+    dataset.push_to_hub("Dahoas/synthetic-instruct-gptj-pairwise")
 
 
-########################
+########################Formatting prompts to feed into instruct query#####################
+
+
+def gen_prompt_format_dataset():
+    hh_prompts = load_jsonl("../datasets/prompts.jsonl")
+    hh_prompts = [prompt["prompt"] for prompt in hh_prompts]
+    synthetic_prompts = load_dataset("Dahoas/synthetic-instruct-gptj-pairwise")["train"]["prompt"]
+    prompts = hh_prompts + synthetic_prompts
+    random.shuffle(prompts)
+    prompts = list(filter(lambda prompt: len(prompt) < 500, prompts))
+
+    gen_num = 8*1e4 #1e5
+    tasks_per_prompt = 10
+    prompts_per_query = 10
+    num_batches = int(gen_num // ((tasks_per_prompt - 5) * prompts_per_query))
+
+    inputs = []
+    for _ in tqdm(range(num_batches)):
+        for _ in range(prompts_per_query):
+            inds = np.random.choice(len(prompts), 5, replace=False)  # Select 5 random prompts to guide generation
+            examples = [prompts[ind] for ind in inds]
+            prompt = "You are a human interacting with a large language model. List {} tasks you want help with. \
+            1. {} \
+            2. {} \
+            3. {} \
+            4. {} \
+            5. {} \
+            ".format(tasks_per_prompt, examples[0], examples[1], examples[2], examples[3], examples[4])
+            inputs.append(prompt)
+    print(len(inputs))
+    dataset = Dataset.from_dict({"prompt": inputs})
+    dataset.push_to_hub("Dahoas/hh_prompt_format")
+
+
+def gen_candidates():
+    synthetic_prompts = load_jsonl("extracted_synthetic_alignment_prompts.jsonl")
+    synthetic_prompts = [prompt["prompt"] for prompt in synthetic_prompts]
+    synthetic_prompts = synthetic_prompts[12835 + 24000:]
+    #random.shuffle(synthetic_prompts)
+
+    prompts_per_query = 20
+    batched_prompts = [synthetic_prompts[i*prompts_per_query : (i+1)*prompts_per_query] for i in range((len(synthetic_prompts) + prompts_per_query - 1) // prompts_per_query)]
+
+    for prompt_batch in tqdm(batched_prompts):
+        inputs = []
+        for prompt in prompt_batch:
+            prompt = "You are a language model. Help complete this task. Task: {} \
+".format(prompt)
+            # Append prompt twice to get pairwise-comparison down the line
+            inputs.append(prompt)
+            #inputs.append(prompt)
+        try:
+            query(inputs, 1024)
+        except openai.error.RateLimitError:
+            print("RATELIMIT ERROR")
+            time.sleep(15)
+        time.sleep(10)  # Sleep to prevent rate limiting
+
+def gen_human_assistant():
+    dataset = load_dataset("Dahoas/synthetic-instruct-gptj-pairwise")["train"]
+    prompts = []
+    for sample in dataset:
+        human, assistant = sample["prompt"], sample["chosen"]
+        prompt = "Human: {} \n Assistant: {} \n\n Above is a dialogue between a human and an assistant. The human is confused about something. Generate a followup comment by the Human and clarifying question by the Human and the Assistant's response. Make sure the Human explains why they asked their question. The assistant can speak any number of sentences. The Human should speak at least two sentences.".format(human, assistant)
+        prompts.append(prompt)
+    dataset = Dataset.from_dict({"prompt": prompts})
+    dataset.push_to_hub("Dahoas/first-instruct-human-assistant-prompt")
+
+
+def gen_preferences():
+    hh_pairs = load_jsonl("/home/dahoas/Desktop/datasets/single_context_pairwise.jsonl")  # chosen, rejected
+    random.shuffle(hh_pairs)
+
+    gen_num = 1e4 #1e5
+    tasks_per_prompt = 1
+    prompts_per_query = 20
+    num_batches = int(gen_num // ((tasks_per_prompt) * prompts_per_query))
+    num_batches = 100
+
+    for _ in tqdm(range(num_batches)):
+        inputs = []
+        for _ in range(prompts_per_query):
+            ind = np.random.choice(len(hh_pairs), 1, replace=False)[0]  # Select 1 random prompts to guide generation
+            pair = hh_pairs[ind]
+            chosen = pair["chosen"]
+            rejected = pair["rejected"]
+            dialogue_end = list(filter(lambda x: x >= 0, [-1 if chosen[i] == rejected[i] else i for i in range(min(len(chosen), len(rejected)))]))
+            if len(dialogue_end) == 0:
+                continue
+            else:
+                dialogue_end = dialogue_end[0]
+            dialogue = chosen[:dialogue_end]
+            chosen = chosen[dialogue_end:]
+            rejected = rejected[dialogue_end:]
+            prompt = "You are a human trying to decide which response best follows from the dialogue. Choose only either Response 1 or Response 2. \n\
+\n\
+Dialogue: {} \n\
+\n\
+Reaponse 1: {} \n\
+\n\
+Response 2: {} \n\
+\n\
+Choice: ".format(dialogue, chosen, rejected)
+            inputs.append(prompt)
 
 
 if __name__ == "__main__":
@@ -253,5 +383,10 @@ if __name__ == "__main__":
     #make_static()
     #zero_one_label()
     #merge_davinci_gens()
-    pair_responses()
+    #pair_responses()
+    #adjust_pairwise()
     #make_single_context_supervised()
+    #gen_prompt_format_dataset()
+    #gen_responses()
+    #extract_prompts()
+    gen_human_assistant()
