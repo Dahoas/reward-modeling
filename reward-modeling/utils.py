@@ -6,6 +6,7 @@ from deepspeed.utils.zero_to_fp32 import load_state_dict_from_zero_checkpoint
 import os
 from reward_models import RewardModel
 import torch
+import json
 
 
 def load_yaml(config_path):
@@ -109,9 +110,9 @@ def upload_model():
 
 def convert_deepspeed_checkpoint(is_rm=True):
     model_name = "EleutherAI/gpt-neox-20b"
-    model_path = "/fsx/alex/ckpts/gptneox-sft"
-    model_ckpt = "checkpoint-2450/"
-    type_t = "not causal"
+    model_path = "/fsx/alex/ckpts/gptneox-rm"
+    model_ckpt = "checkpoint-9462/"
+    type_t = "causal"
     if is_rm:
         model = make_rm(model_name, type_t, model_name)
     else:
@@ -123,11 +124,32 @@ def convert_deepspeed_checkpoint(is_rm=True):
     else:
         fp32_model.save_pretrained(os.path.join(model_path, "hf_ckpt"))
 
+def split_ckpt(num_chunks):
+    ckpt_path = "/fsx/alex/ckpts/gptneox-rm/hf_ckpt"
+    print("Splitting {} ...".format(ckpt_path))
+    sd = torch.load(os.path.join(ckpt_path, "hf_ckpt.pt"))
+    keys = list(sd.keys())
+    chunk_size = len(keys) // num_chunks
+    num_chunks = (len(keys) + chunk_size - 1) // chunk_size
+    key_batches = [keys[chunk_size*i : chunk_size * (i+1)] for i in range(num_chunks)]
+    index = {}
+    for i, key_batch in enumerate(key_batches):
+        sub_dict_name = "hf_ckpt_{}.pt".format(i)
+        print("Saving {} ...".format(sub_dict_name))
+        sub_dict = {key: sd[key] for key in key_batch}
+        for key in key_batch:
+            index[key] = sub_dict_name
+        torch.save(sub_dict, os.path.join(ckpt_path, sub_dict_name))
+        del sub_dict
+    with open(os.path.join(ckpt_path, "index.json"), "w") as f:
+        json.dump(index, f, indent=4)
+    print("Done!")
+
 def hf_upload(make_repo=True):
     import os
     from huggingface_hub import HfApi, create_repo
-    converted_ckpt = "/fsx/alex/ckpts/gptneox-sft/hf_ckpt"
-    repo_name = "Dahoas/gptneox-static-static"
+    converted_ckpt = "/fsx/alex/ckpts/gptneox-rm/hf_ckpt"
+    repo_name = "Dahoas/gptneox-rm-static"
     if make_repo:
         create_repo(repo_name, repo_type="model", private=False)
 
@@ -146,5 +168,6 @@ def hf_upload(make_repo=True):
         print(f"Successfully uploaded {file} !")
 
 if __name__ == "__main__":
-    convert_deepspeed_checkpoint(is_rm=False)
-    hf_upload(make_repo=False)
+    #convert_deepspeed_checkpoint(is_rm=True)
+    #split_ckpt(46)
+    hf_upload(make_repo=True)
