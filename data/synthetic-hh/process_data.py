@@ -213,11 +213,12 @@ def zero_one_label():
 #####Synthetic#####
 
 def hf_upload():
-    filepath = "datasets/synthetic/gptj_completions.jsonl"
+    filepath = "next_synthetic_instruct_responses.jsonl"
     dataset = load_jsonl(filepath)
-    dataset = {"prompt": [prompt["prompt"] for prompt in dataset], "response": [response["response"] for response in dataset]}
+    keys = dataset[0].keys()
+    dataset = {key: [sample[key] for sample in dataset] for key in keys}
     dataset = Dataset.from_dict(dataset)
-    dataset.push_to_hub("Dahoas/sft-gptj-synthetic-prompt-responses")
+    dataset.push_to_hub("Dahoas/next-synthetic-instruct-responses")
 
 def pair_responses():
     dataset_one = "Dahoas/instruct-synthetic-prompt-responses"
@@ -270,8 +271,8 @@ def adjust_pairwise():
     dataset.push_to_hub("Dahoas/synthetic-instruct-gptj-pairwise")
 
 
-########################Formatting prompts to feed into instruct query#####################
-
+########################Formatting prompts to feed into instruct query####################
+    
 
 def gen_prompt_format_dataset():
     hh_prompts = load_jsonl("../datasets/prompts.jsonl")
@@ -329,14 +330,20 @@ def gen_candidates():
         time.sleep(10)  # Sleep to prevent rate limiting
 
 def gen_human_assistant():
-    dataset = load_dataset("Dahoas/synthetic-instruct-gptj-pairwise")["train"]
+    #HERE
+    first = load_dataset("Dahoas/synthetic-instruct-gptj-pairwise")["train"]
+    second = load_dataset("Dahoas/next-synthetic-instruct-responses")["train"]
     prompts = []
-    for sample in dataset:
+    for sample in first:
         human, assistant = sample["prompt"], sample["chosen"]
         prompt = "Human: {} \n Assistant: {} \n\n Above is a dialogue between a human and an assistant. The human is confused about something. Generate a followup comment by the Human and clarifying question by the Human and the Assistant's response. Make sure the Human explains why they asked their question. The assistant can speak any number of sentences. The Human should speak at least two sentences.".format(human, assistant)
         prompts.append(prompt)
+    for sample in second:
+        human, assistant = sample["prompt"], sample["response"]
+        prompt = "Human: {} \n Assistant: {} \n\n Above is a dialogue between a human and an assistant. The human is confused about something. Generate a followup comment by the Human and clarifying question by the Human and the Assistant's response. Make sure the Human explains why they asked their question. The assistant can speak any number of sentences. The Human should speak at least two sentences.".format(human, assistant)
+        prompts.append(prompt)
     dataset = Dataset.from_dict({"prompt": prompts})
-    dataset.push_to_hub("Dahoas/first-instruct-human-assistant-prompt")
+    dataset.push_to_hub("Dahoas/instruct-human-assistant-prompt")
 
 
 def gen_preferences():
@@ -375,6 +382,59 @@ Response 2: {} \n\
 Choice: ".format(dialogue, chosen, rejected)
             inputs.append(prompt)
 
+# TODO(dahoas): How to filter garbled responses?
+def is_valid(response):
+    return True
+
+# Need some way of cleaning self-directives and degeneration
+def clean_and_upload_full_synthetic():
+    instruct_prompt = "\n\n Above is a dialogue between a human and an assistant. The human is confused about something. Generate a followup comment by the Human and clarifying question by the Human and the Assistant's response. Make sure the Human explains why they asked their question. The assistant can speak any number of sentences. The Human should speak at least two sentences."
+    dataset = load_jsonl("first_instruct_human_assistant_gen.jsonl")
+    new_dataset = {"prompt": [], "response": []}
+    for sample in dataset:
+        prompt = sample["prompt"]
+        response = sample["response"]
+        prompt = prompt.replace(instruct_prompt, "")
+        dialog = prompt + response
+        split_dialog = dialog.split("Assistant:")
+        new_prompt = split_dialog[0]
+        split_dialog = split_dialog[1:]
+        for response in split_dialog:
+            if is_valid(response):
+                new_response = "Assistant:" + response.split("Human:")[0]
+                new_dataset["prompt"].append(new_prompt)
+                new_dataset["response"].append(new_response)
+                new_prompt = new_prompt + "Assistant:" + response
+            else:
+                break
+
+    dataset = Dataset.from_dict(new_dataset)
+    dataset.push_to_hub("Dahoas/full-synthetic-hh")
+
+    prompts = new_dataset["prompt"]
+    responses = new_dataset["response"]
+    sft_size = 40000
+    test_size = 10000
+
+    sft_prompts = prompts[:sft_size]
+    sft_responses = responses[:sft_size]
+    dataset = Dataset.from_dict({"prompt": sft_prompts, "response": sft_responses})
+    dataset.push_to_hub("Dahoas/sft-synthetic-hh")
+    print(len(dataset))
+
+    rm_prompts = prompts[sft_size:]
+    rm_responses = responses[sft_size:]
+    train_rm_prompts = rm_prompts[:-test_size]
+    test_rm_prompts = rm_prompts[-test_size:]
+    train_rm_responses = rm_responses[:-test_size]
+    test_rm_responses = rm_responses[-test_size:]
+    train_dataset = Dataset.from_dict({"prompt": train_rm_prompts, "response": train_rm_responses})
+    test_dataset = Dataset.from_dict({"prompt": test_rm_prompts, "response": test_rm_responses})
+    dataset_dict = DatasetDict({"train": train_dataset, "test": test_dataset})
+    dataset_dict.push_to_hub("Dahoas/rm-synthetic-hh")
+    print(len(train_dataset))
+    print(len(test_dataset))
+
 
 if __name__ == "__main__":
     #hf_upload()
@@ -389,4 +449,5 @@ if __name__ == "__main__":
     #gen_prompt_format_dataset()
     #gen_responses()
     #extract_prompts()
-    gen_human_assistant()
+    #gen_human_assistant()
+    clean_and_upload_full_synthetic()

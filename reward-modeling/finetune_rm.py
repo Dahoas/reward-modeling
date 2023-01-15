@@ -10,6 +10,7 @@ import argparse
 from utils import freeze_bottom_causal_layers, load_yaml, make_rm
 from datasets import load_dataset
 import wandb
+import random
 
 
 class SparsePairwiseTrainer(Trainer):

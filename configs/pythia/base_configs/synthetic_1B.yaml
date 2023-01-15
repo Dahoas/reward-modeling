@@ -1,0 +1,20 @@
+model_path: "EleutherAI/pythia-1.3b-deduped"
+tokenizer_path: "EleutherAI/gpt-neox-20b"
+save_dir: "/fsx/alex/ckpts/pythia/synthetic-1B-sft"
+
+train_args:
+  output_dir: "/fsx/alex/ckpts/pythia/synthetic-1B-sft"
+  num_train_epochs: 1
+  logging_steps: 100
+  save_strategy: "epoch"
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  warmup_steps: 100
+  weight_decay: 0.01
+  learning_rate: 1.0e-4
+  save_total_limit: 1
+  logging_dir: "./logs"
+  fp16: True
+  evaluation_strategy: "epoch"
+
+data_path: "Dahoas/sft-synthetic-hh"

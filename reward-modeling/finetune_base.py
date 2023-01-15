@@ -9,6 +9,7 @@ from utils import load_yaml, load_jsonl, freeze_bottom_causal_layers
 from rm_datasets import SFTDataset
 import wandb
 from datasets import load_dataset
+import random
 
 
 def train(config):

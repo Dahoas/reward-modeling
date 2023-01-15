@@ -1,10 +1,10 @@
-model_path: "Dahoas/gptneox-sft-static"
+model_path: "Dahoas/pythia-1B-static-sft"
 model_type: "causal"
 tokenizer_path: "EleutherAI/gpt-neox-20b"
-num_layers_unfrozen: 0.33
+num_layers_unfrozen: 0.66
 
 train_args:
-  output_dir: "/fsx/alex/ckpts/gptneox-rm"
+  output_dir: "/fsx/alex/ckpts/pythia/1B-rm"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
@@ -12,12 +12,10 @@ train_args:
   per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
-  learning_rate: 2.5e-5
+  learning_rate: 1.0e-5
+  save_total_limit: 1
   logging_dir: "./logs"
   fp16: True
-  bf16: False
-  gradient_checkpointing: True
-  gradient_accumulation_steps: 2
 
 data_path: "Dahoas/rm-static"
 trainer_type: "sparse"

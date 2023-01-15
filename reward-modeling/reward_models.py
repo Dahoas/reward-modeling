@@ -12,9 +12,9 @@ class RewardModel(nn.Module):
     def __init__(self, config, PAD_ID):
         super().__init__()
         # TODO(dahoas): fix hacky fix
-        self.neox = "neox" in config
         self.model = AutoModelForCausalLM.from_pretrained(config)
         self.config = self.model.config
+        self.neox = "neox" in self.config.model_type
         # gpt-neo models have hidden_size instead of n_embd
         self.config.n_embd = self.config.hidden_size if hasattr(self.config, "hidden_size") else self.config.n_embd
         self.transformer = self.model.gpt_neox if hasattr(self.model, "gpt_neox") else self.model.transformer

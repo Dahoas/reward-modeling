@@ -110,22 +110,22 @@ def upload_model():
 
 def convert_deepspeed_checkpoint(is_rm=True):
     model_name = "EleutherAI/gpt-neox-20b"
-    model_path = "/fsx/alex/ckpts/gptneox-rm"
-    model_ckpt = "checkpoint-9462/"
+    model_path = "/fsx/alex/ckpts/gptneox-sft"
+    model_ckpt = "checkpoint-2450/"
     type_t = "causal"
     if is_rm:
         model = make_rm(model_name, type_t, model_name)
     else:
-        model = AutoModel.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(model_name)
     fp32_model = load_state_dict_from_zero_checkpoint(model, os.path.join(model_path, model_ckpt))
-    if type_t == "causal":
+    if type_t == "causal" and is_rm:
         os.mkdir(os.path.join(model_path, "hf_ckpt"))
         torch.save(model.state_dict(), os.path.join(model_path, "hf_ckpt/hf_ckpt.pt"))
     else:
         fp32_model.save_pretrained(os.path.join(model_path, "hf_ckpt"))
 
 def split_ckpt(num_chunks):
-    ckpt_path = "/fsx/alex/ckpts/gptneox-rm/hf_ckpt"
+    ckpt_path = "/fsx/alex/ckpts/gptneox-sft/hf_ckpt"
     print("Splitting {} ...".format(ckpt_path))
     sd = torch.load(os.path.join(ckpt_path, "hf_ckpt.pt"))
     keys = list(sd.keys())
@@ -148,8 +148,8 @@ def split_ckpt(num_chunks):
 def hf_upload(make_repo=True):
     import os
     from huggingface_hub import HfApi, create_repo
-    converted_ckpt = "/fsx/alex/ckpts/gptneox-rm/hf_ckpt"
-    repo_name = "Dahoas/gptneox-rm-static"
+    converted_ckpt = "/fsx/alex/ckpts/gptneox-sft/hf_ckpt"
+    repo_name = "Dahoas/gptneox-sft-static"
     if make_repo:
         create_repo(repo_name, repo_type="model", private=False)
 
@@ -168,6 +168,6 @@ def hf_upload(make_repo=True):
         print(f"Successfully uploaded {file} !")
 
 if __name__ == "__main__":
-    #convert_deepspeed_checkpoint(is_rm=True)
+    convert_deepspeed_checkpoint(is_rm=False)
     #split_ckpt(46)
-    hf_upload(make_repo=True)
+    hf_upload(make_repo=False)

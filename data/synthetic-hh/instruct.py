@@ -53,5 +53,5 @@ if __name__ == "__main__":
 
     prompt_dataset = load_dataset(args.prompt_dataset)["train"]
     prompt_dataset = [{key: sample[key] for key in sample} for sample in prompt_dataset]
-    #prompt_dataset = prompt_dataset[:37020]
+    prompt_dataset = prompt_dataset[21000:]
     run_prompts(prompt_dataset, 10, 1024+60, 1.4)
