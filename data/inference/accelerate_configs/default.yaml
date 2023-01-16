@@ -7,7 +7,7 @@ machine_rank: 0
 main_process_ip: null
 main_process_port: null
 main_training_function: main
-mixed_precision: fp16
+mixed_precision: 'no'
 num_machines: 1
-num_processes: 1
+num_processes: 8
 use_cpu: false

@@ -1,9 +1,9 @@
 model_path: "EleutherAI/gpt-j-6B"
 tokenizer_path: "EleutherAI/gpt-j-6B"
-save_dir: "../ckpts/gptj-sft"
+save_dir: "/fsx/alex/ckpts/gptj-sft"
 
 train_args:
-  output_dir: "../ckpts/gptj-sft"
+  output_dir: "/fsx/alex/ckpts/gptj-sft"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
@@ -11,7 +11,7 @@ train_args:
   per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
-  learning_rate: 1.0e-4
+  learning_rate: 5.0e-5
   save_total_limit: 1
   logging_dir: "./logs"
   fp16: False
