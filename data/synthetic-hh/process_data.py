@@ -436,6 +436,165 @@ def clean_and_upload_full_synthetic():
     print(len(test_dataset))
 
 
+def find_responses(prompt, dicts):
+    responses = {}
+    for key, dataset in dicts.items():
+        response = dataset.get(prompt)
+        if response is not None:
+            dataset.pop(prompt)
+        responses[key] = response
+    return responses
+        
+
+def make_hybrid_rm_dataset_split(split):
+    datasets_names = ["Dahoas/pythia_synthetic_125M_inference_{}".format(split), "Dahoas/pythia_synthetic_1B_inference_{}".format(split), "Dahoas/pythia_synthetic_6B_inference_{}".format(split), "Dahoas/pythia_synthetic_20B_inference_{}".format(split)]
+    dicts = {}
+    for dataset_name in datasets_names:
+        dataset = load_dataset(dataset_name)["train"]
+        dicts[dataset_name] = {sample["prompt"]: sample["response"] for sample in dataset}
+
+
+    instruct = load_dataset("Dahoas/rm-synthetic-hh")[split]
+    instruct = {sample["prompt"]: sample["response"] for sample in instruct}
+
+    dataset = {"prompt": [], "125M": [], "1B": [], "6B": [], "20B": [], "instruct": []}
+    for prompt, instruct_response in tqdm(instruct.items()):
+        dataset["prompt"].append(prompt)
+        dataset["instruct"].append(instruct_response)
+        responses = find_responses(prompt, dicts)
+        if None not in responses.values():
+            for key, val in responses.items():
+                convert = {"Dahoas/pythia_synthetic_125M_inference_train": "125M", "Dahoas/pythia_synthetic_1B_inference_train": "1B", "Dahoas/pythia_synthetic_6B_inference_train": "6B", "Dahoas/pythia_synthetic_20B_inference_train": "20B"}
+                key = convert[key]
+                dataset[key].append(val)
+    print("Len: {}".format(len(dataset["prompt"])))
+    dataset = Dataset.from_dict(dataset)
+    return dataset
+
+def make_hybrid_rm_dataset():
+    dataset = make_hybrid_rm_dataset_split("train")
+    dataset.push_to_hub("Dahoas/synthetic_prompt_responses")
+
+convert = {"125M": 1, "1B": 2, "6B": 3, "20B": 4, "instruct": 5}
+def m1_less_m2(m1, m2):
+    return convert[m1] < convert[m2]
+
+def sample_pair(m1, m2):
+    abs(m1 - m2)
+
+def make_pairs(sample):
+    pairs = []
+    for k1 in sample:
+        for k2 in sample:
+            if k1 != k2:
+                v1 = sample[k1]
+                v2 = sample[k2]
+                chosen = v2 if m1_less_m2(k1, k2) else v1
+                rejected = v1 if m1_less_m2(k1, k2) else v2
+                if sample_pair(k1, k2):
+                    pairs.append({"chosen": chosen, "rejected": rejected})
+    return pairs
+
+# Base dataset 133,00 samples
+
+# Option 1
+# 70% of dataset is instruct comparisons
+## 40% with neox, 30% with 6B, 0% with 1B, 0% with instruct
+# 25% neox comparisons
+## 18% with 6B, 7% with 1B
+# 5 % 6B comparisons
+## 4% with 1B, 1% with 125M
+# 133,000 total prompts:
+## 133,000 instruct-neox, 
+# 334030 total samples
+## 133000 instruct-neox, 100209 instruct-6B
+## 60125 neox-6B, 23382 neox-1B
+## 13361 6B-1B, 3340 6B-125M
+
+# Option 2
+## 100,000 instruct-neox, 33,000 instruct-6B disjoint
+## neox-6B 50,000 samples (25,000 as with instruct, 25,000 new), neox-1B 25,000 samples (18000 with instruct, 7000 new)
+## 6B-1B 25,000 samples (12,500 as with neox, 12,500 new), 5,000 6B-125M (2500 as previous, 2500 new)
+## 1B-125M 5,000 samples (2500 as with 6B, 2500 new) 
+def make_synthetic_hh_graded_rm():
+    dataset = load_dataset("Dahoas/synthetic_prompt_responses")["train"]
+    rm_dataset = {"prompt": [], "chosen": [], "rejected": []}
+
+    INSTRUCT_NEOX = 100000
+    INSTRUCT_6B = 33000
+    NEOX_6B = 50000
+    NEOX_6B_SEEN = 25000
+    NEOX_6B_NEW = 25000
+    assert NEOX_6B == NEOX_6B_NEW + NEOX_6B_SEEN
+    NEOX_1B = 25000
+    NEOX_1B_SEEN = 18000
+    NEOX_1B_NEW = 7000
+    assert NEOX_1B == NEOX_1B_NEW + NEOX_1B_SEEN
+    SIXB_1B = 25000
+    SIXB_1B_NEW = 12500
+    SIXB_1B_SEEN = 12500
+    assert SIXB_1B == SIXB_1B_NEW + SIXB_1B_SEEN
+    SIXB_125M = 5000
+    SIXB_125M_NEW = 2500
+    SIXB_125M_SEEN = 2500
+    assert SIXB_125M == SIXB_125M_NEW + SIXB_125M_SEEN
+    ONEB_125M = 5000
+    ONEB_125M_NEW = 2500
+    ONEB_125M_SEEN = 2500
+    assert ONEB_125M == ONEB_125M_NEW + ONEB_125M_SEEN
+
+    # Select instruct-neox, instruct-6B, neox-6B
+    dataset = dataset.shuffle()
+    new_neox = []
+    for i, sample in enumerate(tqdm(dataset)):
+        rm_dataset["prompt"].append(sample["prompt"])
+        rm_dataset["chosen"].append(sample["instruct"])
+        if i < INSTRUCT_NEOX:
+            rm_dataset["rejected"].append(sample["20B"])
+        else:
+            new_neox
+            rm_dataset["rejected"].append(sample["6B"])
+
+    # Select neox
+    dataset = dataset.shuffle()
+    for i, sample in enumerate(tqdm(dataset)):
+        if i < NEOX_6B:
+            rm_dataset["prompt"].append(sample["prompt"])
+            rm_dataset["chosen"].append(sample["instruct"])
+            rm_dataset["rejected"].append(sample["20B"])
+
+    dataset = Dataset.from_dict(dataset)
+    print("Len: {}".format(len(rm_dataset["prompt"])))
+    dataset = dataset.train_test_split(test_size=0.07)
+    dataset = DatasetDict({"train": dataset["train"], "test": dataset["test"]})
+    dataset.push_to_hub("Dahoas/graded-synthetic-hh-rm")
+
+
+def upload_augmented_dataset():
+    dataset = load_jsonl("text-davinici-001.jsonl")
+    print(dataset[0].keys())
+    new_dataset = {key: [] for key in dataset[0]}
+    new_dataset.pop("response")
+    new_dataset.pop("instruct")
+    new_dataset["instruct_1"] = []
+    new_dataset["instruct_3"] = []
+    for sample in dataset:
+        for key in sample:
+            if key == "response":
+                new_key = "instruct_1"
+            elif key == "instruct":
+                new_key = "instruct_3"
+            else:
+                new_key = key
+            new_dataset[new_key].append(sample[key])
+    dataset = Dataset.from_dict(new_dataset)
+    print(dataset[0].keys())
+    dataset = dataset.train_test_split(test_size=0.05)
+    print(len(dataset))
+    dataset.push_to_hub("Dahoas/augmented_synthetic_prompt_responses")
+        
+
+
 if __name__ == "__main__":
     #hf_upload()
     #make_hh()
@@ -450,4 +609,6 @@ if __name__ == "__main__":
     #gen_responses()
     #extract_prompts()
     #gen_human_assistant()
-    clean_and_upload_full_synthetic()
+    #clean_and_upload_full_synthetic()
+    #make_hybrid_rm_dataset()
+    upload_augmented_dataset()

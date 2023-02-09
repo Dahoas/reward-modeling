@@ -9,20 +9,21 @@ from typing import Optional, Tuple
 
 
 class RewardModel(nn.Module):
-    def __init__(self, config, PAD_ID):
+    def __init__(self, config, PAD_ID, save_model=True):
         super().__init__()
         # TODO(dahoas): fix hacky fix
-        self.model = AutoModelForCausalLM.from_pretrained(config)
-        self.config = self.model.config
+        model = AutoModelForCausalLM.from_pretrained(config)
+        self.config = model.config
         self.neox = "neox" in self.config.model_type
         # gpt-neo models have hidden_size instead of n_embd
         self.config.n_embd = self.config.hidden_size if hasattr(self.config, "hidden_size") else self.config.n_embd
-        self.transformer = self.model.gpt_neox if hasattr(self.model, "gpt_neox") else self.model.transformer
+        self.transformer = model.gpt_neox if hasattr(model, "gpt_neox") else model.transformer
         dtype = self.config.torch_dtype if hasattr(self.config, "torch_dtype") is not None else torch.float32
         dtype = torch.float16 if dtype == "float16" else torch.float32
         self.v_head = nn.Linear(self.config.n_embd, 1, bias=False, dtype=torch.float16)
         self.PAD_ID = PAD_ID
-
+        if save_model:
+            self.model = model
 
     def gradient_checkpointing_enable(self):
         self.model.gradient_checkpointing_enable()

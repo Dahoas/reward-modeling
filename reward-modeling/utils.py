@@ -89,14 +89,14 @@ def freeze_bottom_causal_layers(model: nn.Module, num_layers_unfrozen):
         layer.requires_grad_(False)
 
 
-def make_rm(model_name, type_t, tok_path):
+def make_rm(model_name, type_t, tok_path, save_model=True):
     if type_t == "classification":
         config = AutoConfig.from_pretrained(model_name)
         config.num_labels = 1
         reward_model = AutoModelForSequenceClassification.from_config(config)
     elif type_t == "causal":
         tokenizer = AutoTokenizer.from_pretrained(tok_path)
-        reward_model = RewardModel(model_name, tokenizer(tokenizer.eos_token)["input_ids"][0])
+        reward_model = RewardModel(model_name, tokenizer(tokenizer.eos_token)["input_ids"][0], save_model=save_model)
     else:
         raise ValueError("Unsupported reward model type {}".format(type_t))
     return reward_model
@@ -109,10 +109,10 @@ def upload_model():
 
 
 def convert_deepspeed_checkpoint(is_rm=True):
-    model_name = "Dahoas/gptj-sft-static"
-    tok_name = "EleutherAI/gpt-j-6B"
-    model_path = "/fsx/alex/ckpts/gptj-rm"
-    model_ckpt = "checkpoint-9461/"
+    model_name = "Dahoas/pythia-6B-static-sft"
+    tok_name = "EleutherAI/gpt-neox-20b"
+    model_path = "/fsx/alex/ckpts/pythia/synthetic-6B-rm"
+    model_ckpt = "checkpoint-13169/"
     type_t = "causal"
     if is_rm:
         model = make_rm(model_name, type_t, tok_name)
@@ -120,7 +120,8 @@ def convert_deepspeed_checkpoint(is_rm=True):
         model = AutoModelForCausalLM.from_pretrained(model_name)
     fp32_model = load_state_dict_from_zero_checkpoint(model, os.path.join(model_path, model_ckpt))
     if type_t == "causal" and is_rm:
-        os.mkdir(os.path.join(model_path, "hf_ckpt"))
+        if not os.path.exists(os.path.join(model_path, "hf_ckpt")):
+            os.mkdir(os.path.join(model_path, "hf_ckpt"))
         torch.save(model.state_dict(), os.path.join(model_path, "hf_ckpt/hf_ckpt.pt"))
     else:
         fp32_model.save_pretrained(os.path.join(model_path, "hf_ckpt"))
@@ -149,8 +150,8 @@ def split_ckpt(num_chunks):
 def hf_upload(make_repo=True):
     import os
     from huggingface_hub import HfApi, create_repo
-    converted_ckpt = "/fsx/alex/ckpts/gptj-rm/hf_ckpt"
-    repo_name = "Dahoas/gptj-rm-static"
+    converted_ckpt = "/fsx/alex/ckpts/pythia/synthetic-6B-rm/hf_ckpt"
+    repo_name = "Dahoas/pythia-6b-rm-synthetic"
     if make_repo:
         create_repo(repo_name, repo_type="model", private=False)
 

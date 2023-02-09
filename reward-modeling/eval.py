@@ -90,59 +90,6 @@ def eval_rm_acc(use_deepspeed=False):
     print(cnt / len(data["test"]))
 
 
-def label():
-    data = []
-    dataset_name = "single_context_pairwise"
-    with open(dataset_name + ".jsonl", "r") as f:
-        lines = f.readlines()
-        for line in lines:
-            loaded_line = json.loads(line)
-            data.append(loaded_line)
-    print("Len data: ", len(data))
-
-    tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-j-6B")
-    tokenizer.pad_token = tokenizer.eos_token
-    max_length = 1024
-
-    dataset = PairwiseDataset(data, tokenizer, max_length=max_length)
-    batch_size = 12
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, collate_fn=data_collator)
-
-    model = GPTRewardModel("EleutherAI/gpt-j-6B")
-    model.load_state_dict(torch.load("ckpts/single_context_pairwise/gpt-j.pt"))
-    model.half() # Converts to fp16 for faster inference
-    model.eval()
-    model.cuda()
-
-    def gen(inputs):
-        input_ids = inputs["input_ids"].to("cuda")
-        #print(torch.cuda.memory_summary())
-        with torch.no_grad():
-            output = model(input_ids)
-        # Correct reward score is last element - unless there are issues with padding?
-        rewards = output[:, -1]
-        return rewards
-
-    cnt = 0
-    chosen_rewards = []
-    rejected_rewards = []
-    with open("rm_labeled_single_context_pairwise.jsonl", "w") as f:
-        for i, batch in tqdm(enumerate(dataloader)):
-            #if i > 1000:
-            #    break
-            rewards = gen(batch)
-            chosen_rewards += rewards[:rewards.shape[0] // 2].tolist()
-            rejected_rewards += rewards[rewards.shape[0] // 2:].tolist()
-
-        for data_element, chosen_reward, rejected_reward in zip(data, chosen_rewards, rejected_rewards):
-            data_element["chosen_reward"] = chosen_reward
-            data_element["rejected_reward"] = rejected_reward
-            json.dump(data_element, f)
-            f.write("\n")
-
-        chosen_rewards = []
-        rejected_rewards = []
-
 
 
 def gen_candidates():
@@ -179,9 +126,67 @@ def gen_candidates():
             Logger.log([{"prompt": input_text, "response": output_text}])
 
 
+def gather_group(dataset, Id):
+    group = {}
+    ids = []
+    for i, s in enumerate(dataset):
+            if s["id"] == Id:
+                if group.get(s["type"]) is not None:
+                    ValueError("Conflicting sample types for sample {}".format(sample["id"]))
+                group[s["type"]] = s
+                ids.append(i)
+    return ids, group
+
+def compute_acc_from_reward_labeled_data(dataset, order=["chosen", "rejected"]):
+    num_classes = len(order)
+    accs = {}
+    cnt = 0
+    for i in range(num_classes):
+        for j in range(i+1, num_classes):
+            accs["{}-{}".format(order[i], order[j])] = {"acc": 0, "cnt": 0}
+
+    lonely = []
+    while len(dataset) > 0:
+        sample = dataset.pop(0)
+        ids, group = gather_group(dataset, sample["id"])
+        group[sample["type"]] = sample
+
+        if len(group) != num_classes:
+            print("Sample {} is imbalanced".format(sample["id"]))
+            lonely.append(sample)
+            continue
+        
+        # Remove sieved samples from dataset
+        for ind in ids[::-1]:
+            dataset.pop(ind)
+
+        for i in range(num_classes):
+            for j in range(i+1, num_classes):
+                name = "{}-{}".format(order[i], order[j])
+                accs[name]["acc"] += int(group[order[i]]["reward"] > group[order[j]]["reward"])
+                accs[name]["cnt"] += 1
+                cnt += 1
+
+        if cnt % 1000 == 0:
+            print("Pair {}...".format(cnt))
+            print(group)
+
+    acc = 0
+    for key in accs:
+        acc += accs[key]["acc"]
+        accs[key]["acc"] = accs[key]["acc"] / accs[key]["cnt"]
+    acc = acc / cnt
+    print(json.dumps(accs, indent=2))
+    print("Dataset acc: {}".format(acc))
 
 if __name__ == "__main__":
+    #dataset = load_jsonl("6B_rm_on_synthetic_test.jsonl")
+    #dataset = load_jsonl("1B_rm_inference_test.jsonl")
+    dataset = load_jsonl("augmented_synthetic_6B_rm_on_hh_test.jsonl")
+    #order = ["instruct_3", "instruct_1", "20B", "6B"]
+    order = ["chosen", "rejected"]
+    compute_acc_from_reward_labeled_data(dataset, order=order)
     #label()
-    eval_rm_acc()
+    #eval_rm_acc()
     #save_as_fp32()
     #gen_candidates()

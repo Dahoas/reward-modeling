@@ -1,0 +1,18 @@
+deepspeed_config:
+  gradient_accumulation_steps: 1
+  offload_optimizer_device: none
+  offload_param_device: none
+  zero3_init_flag: true
+  zero3_save_16bit_model: false
+  zero_stage: 3
+distributed_type: DEEPSPEED
+downcast_bf16: 'no'
+fsdp_config: {}
+machine_rank: 0
+main_process_ip: null
+main_process_port: null
+main_training_function: main
+mixed_precision: fp16
+num_machines: 1
+num_processes: 8
+use_cpu: false

@@ -9,20 +9,20 @@ import time
 from datasets import load_dataset
 
 
-def query(prompts, max_tokens, temperature=1.0):
-    responses = openai.Completion.create(engine='text-davinci-003', prompt=prompts, max_tokens=max_tokens, temperature=temperature)["choices"]
+def query(prompts, max_tokens, temperature=1.0, model="text-davinci-003"):
+    responses = openai.Completion.create(engine=model, prompt=prompts, max_tokens=max_tokens, temperature=temperature)["choices"]
     responses = [response["text"] for response in responses]
     return responses
 
 # Assumes prompts is a list of dicts, each of which contains a "prompt" key
-def run_prompts(prompts, batch_size, max_tokens, temperature):
+def run_prompts(prompts, batch_size, max_tokens, temperature, model):
     num_batches = (len(prompts) + batch_size - 1) // batch_size
     batched_prompts = [prompts[i*batch_size : (i+1)*batch_size] for i in range(num_batches)]
     
     for batch in tqdm(batched_prompts):
         batch_prompts = [sample["prompt"] for sample in batch]
         try:
-            responses = query(batch_prompts, max_tokens, temperature)
+            responses = query(batch_prompts, max_tokens, temperature, model=model)
             for sample, response in zip(batch, responses):
                 sample["response"] = response
             Logger.log(batch)
@@ -46,6 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("--prompt_dataset")
     parser.add_argument("--log_file")
     parser.add_argument("--oai_key")
+    parser.add_argument("--model", default="text-davinci-003")
     args = parser.parse_args()
 
     Logger.init(args.log_file)
@@ -53,5 +54,5 @@ if __name__ == "__main__":
 
     prompt_dataset = load_dataset(args.prompt_dataset)["train"]
     prompt_dataset = [{key: sample[key] for key in sample} for sample in prompt_dataset]
-    prompt_dataset = prompt_dataset[21000:]
-    run_prompts(prompt_dataset, 10, 1024+60, 1.4)
+    #prompt_dataset = prompt_dataset[21000:]
+    run_prompts(prompt_dataset, 10, 512, 1.0, args.model)
