@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 
 
 class RewardModel(nn.Module):
-    def __init__(self, config, PAD_ID, save_model=True):
+    def __init__(self, config, PAD_ID, save_model):
         super().__init__()
         # TODO(dahoas): fix hacky fix
         model = AutoModelForCausalLM.from_pretrained(config)
@@ -23,6 +23,7 @@ class RewardModel(nn.Module):
         self.v_head = nn.Linear(self.config.n_embd, 1, bias=False, dtype=torch.float16)
         self.PAD_ID = PAD_ID
         if save_model:
+            print("INITIALIZING SELF REFERNCE (FOR ACTIVATION CHECKPOINTING)")
             self.model = model
 
     def gradient_checkpointing_enable(self):

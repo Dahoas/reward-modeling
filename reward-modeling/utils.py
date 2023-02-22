@@ -89,14 +89,14 @@ def freeze_bottom_causal_layers(model: nn.Module, num_layers_unfrozen):
         layer.requires_grad_(False)
 
 
-def make_rm(model_name, type_t, tok_path, save_model=True):
+def make_rm(model_name, type_t, tok_path, save_model):
     if type_t == "classification":
         config = AutoConfig.from_pretrained(model_name)
         config.num_labels = 1
         reward_model = AutoModelForSequenceClassification.from_config(config)
     elif type_t == "causal":
         tokenizer = AutoTokenizer.from_pretrained(tok_path)
-        reward_model = RewardModel(model_name, tokenizer(tokenizer.eos_token)["input_ids"][0], save_model=save_model)
+        reward_model = RewardModel(model_name, tokenizer(tokenizer.eos_token)["input_ids"][0], save_model)
     else:
         raise ValueError("Unsupported reward model type {}".format(type_t))
     return reward_model
@@ -109,10 +109,10 @@ def upload_model():
 
 
 def convert_deepspeed_checkpoint(is_rm=True):
-    model_name = "Dahoas/pythia-6B-static-sft"
-    tok_name = "EleutherAI/gpt-neox-20b"
-    model_path = "/fsx/alex/ckpts/pythia/synthetic-6B-rm"
-    model_ckpt = "checkpoint-13169/"
+    model_name = "EleutherAI/pythia-125m-deduped" # "Dahoas/pythia-6B-static-sft"
+    tok_name = "EleutherAI/gpt-neox-20b" #"EleutherAI/gpt-neox-20b"
+    model_path = "/fsx/alex/ckpts/pythia/125M-response-full-static"
+    model_ckpt = "checkpoint-11791/"
     type_t = "causal"
     if is_rm:
         model = make_rm(model_name, type_t, tok_name)
@@ -150,8 +150,8 @@ def split_ckpt(num_chunks):
 def hf_upload(make_repo=True):
     import os
     from huggingface_hub import HfApi, create_repo
-    converted_ckpt = "/fsx/alex/ckpts/pythia/synthetic-6B-rm/hf_ckpt"
-    repo_name = "Dahoas/pythia-6b-rm-synthetic"
+    converted_ckpt = "/fsx/alex/ckpts/pythia/125M-response-full-static/hf_ckpt"
+    repo_name = "Dahoas/pythia-125M-response-full-static-sft"
     if make_repo:
         create_repo(repo_name, repo_type="model", private=False)
 
@@ -170,6 +170,6 @@ def hf_upload(make_repo=True):
         print(f"Successfully uploaded {file} !")
 
 if __name__ == "__main__":
-    convert_deepspeed_checkpoint(is_rm=True)
+    convert_deepspeed_checkpoint(is_rm=False)
     #split_ckpt(46)
-    hf_upload(make_repo=False)
+    hf_upload(make_repo=True)

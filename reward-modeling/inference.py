@@ -78,12 +78,13 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", default=1)
     parser.add_argument("--rm_path", default="")
     parser.add_argument("--order", nargs="*", default=["response"])
-    parser.add_argument("--save_model", default=False)
+    parser.add_argument("--save_model", default=False, action="store_true")
     args = parser.parse_args()
 
     #print("Order: {}".format(args.order))
 
     assert args.log_file is not None
+    assert args.save_model is not None
     Logger.init(args.log_file)
 
     # Often taking test split of rm static dataset

@@ -182,7 +182,7 @@ def compute_acc_from_reward_labeled_data(dataset, order=["chosen", "rejected"]):
 if __name__ == "__main__":
     #dataset = load_jsonl("6B_rm_on_synthetic_test.jsonl")
     #dataset = load_jsonl("1B_rm_inference_test.jsonl")
-    dataset = load_jsonl("augmented_synthetic_6B_rm_on_hh_test.jsonl")
+    dataset = load_jsonl("gptj_rm_static_rm_on_full_static_test.jsonl")
     #order = ["instruct_3", "instruct_1", "20B", "6B"]
     order = ["chosen", "rejected"]
     compute_acc_from_reward_labeled_data(dataset, order=order)

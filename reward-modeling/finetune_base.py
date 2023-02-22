@@ -6,7 +6,7 @@ from transformers import AutoTokenizer, TrainingArguments, Trainer, AutoModelFor
 import json
 import argparse
 from utils import load_yaml, load_jsonl, freeze_bottom_causal_layers
-from rm_datasets import SFTDataset
+from rm_datasets import SFTDataset, MaskedSFTDataset
 import wandb
 from datasets import load_dataset
 import random
@@ -21,7 +21,10 @@ def train(config):
     data = load_dataset(config["data_path"])["train"]
     print("Len data: ", len(data))
 
-    dataset = SFTDataset(data, tokenizer)
+    if config["trainer"] == "unmasked":
+        dataset = SFTDataset(data, tokenizer)
+    elif config["trainer"] == "masked":
+        dataset = MaskedSFTDataset(data, tokenizer)
     train_size = int(0.98 * len(dataset))
     train_dataset, val_dataset = random_split(dataset, [train_size, len(dataset) - train_size])
 
