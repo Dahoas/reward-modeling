@@ -109,9 +109,9 @@ def upload_model():
 
 
 def convert_deepspeed_checkpoint(is_rm=True):
-    model_name = "EleutherAI/pythia-125m-deduped" # "Dahoas/pythia-6B-static-sft"
+    model_name = "EleutherAI/pythia-6.9b-deduped" # "Dahoas/pythia-6B-static-sft"
     tok_name = "EleutherAI/gpt-neox-20b" #"EleutherAI/gpt-neox-20b"
-    model_path = "/fsx/alex/ckpts/pythia/125M-response-full-static"
+    model_path = "/fsx/alex/ckpts/pythia/6B-sft-response-full-static"
     model_ckpt = "checkpoint-11791/"
     type_t = "causal"
     if is_rm:
@@ -150,8 +150,8 @@ def split_ckpt(num_chunks):
 def hf_upload(make_repo=True):
     import os
     from huggingface_hub import HfApi, create_repo
-    converted_ckpt = "/fsx/alex/ckpts/pythia/125M-response-full-static/hf_ckpt"
-    repo_name = "Dahoas/pythia-125M-response-full-static-sft"
+    converted_ckpt = "/fsx/alex/ckpts/pythia/6B-sft-response-full-static/hf_ckpt"
+    repo_name = "Dahoas/pythia-6B-sft-response-full-static"
     if make_repo:
         create_repo(repo_name, repo_type="model", private=False)
 

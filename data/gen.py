@@ -3,6 +3,9 @@ import os
 from tqdm import tqdm
 import json
 from clean import clean
+import numpy as np
+import random
+from transformers import AutoTokenizer
 
 
 def load_jsonl(filename):
@@ -164,11 +167,135 @@ def make_summary_ilql_responses():
         new_dataset.push_to_hub("Dahoas/ilql_{}_summarization_eval".format(name))
 
 
+def clean_augmented_synthetic_prompt_responses():
+    dataset = load_dataset("Dahoas/augmented_synthetic_prompt_responses", revision="b4f4b90660d8ba6a7c3ce59e8af659923834dbb1")
+    def f(dataset):
+        new_dataset = {key: [] for key in dataset[0].keys()}
+        for sample in tqdm(dataset):
+            for key in sample:
+                if key == "prompt":
+                    new_dataset[key].append(sample[key].strip() + "\n\nAssistant:")
+                else:
+                    new_dataset[key].append(" " + sample[key].replace("Assistant:", "").strip())
+        return Dataset.from_dict(new_dataset)
+    train_dataset = f(dataset["train"])
+    test_dataset = f(dataset["test"])
+    new_dataset = DatasetDict({"train": train_dataset, "test": test_dataset})
+    new_dataset.push_to_hub("Dahoas/augmented_synthetic_prompt_responses") 
+
+def make_instruct_preference_queries():
+    dataset = load_dataset("Dahoas/augmented_synthetic_prompt_responses")
+
+    def f(dataset):
+        new_dataset = {"prompt": [], "dialogue": [], "instruct_1": [], "instruct_3": []}
+        for sample in tqdm(dataset):
+            dialogue, instruct_1, instruct_3 = sample["prompt"], sample["instruct_1"], sample["instruct_3"]
+            new_dataset["dialogue"].append(dialogue)
+            new_dataset["instruct_1"].append(instruct_1)
+            new_dataset["instruct_3"].append(instruct_3)
+            responses = [instruct_1, instruct_3]
+            random.shuffle(responses)
+            response_a, response_b = responses
+            prompt = "Below is a dialogue between a user asking a question and an assistant. At the end you will find two possible responses from the Assistant. Select either Reponse A or Response B as the most helpful response to the user's dialogue.\n\n\n\
+Dialogue: {}\n\n\n\
+Response A:{}\n\n\n\
+Response B:{}\n\n\n\
+Choose either Response A or Response B as being the most helpful:".format(dialogue, response_a, response_b)
+            new_dataset["prompt"].append(prompt)
+        return Dataset.from_dict(new_dataset)
+
+    train_dataset = f(dataset["train"])
+    test_dataset = f(dataset["test"])
+    new_dataset = DatasetDict({"train": train_dataset, "test": test_dataset})
+    print(new_dataset["train"][0])
+    new_dataset.push_to_hub("Dahoas/instruct_preference_queries")
+
+
+def analyze_instruct_preference():
+    dataset = load_jsonl("synthetic-hh/instruct_preference_queries.jsonl")
+    cnt_1, cnt_3 = 0, 0
+    for sample in tqdm(dataset):
+        prompt = sample["prompt"]
+        response_a = prompt.split("Response A:")[1].split("Response B:")[0]
+        response_b = prompt.split("Response B:")[1].split("\n\n\n")[0]
+        if "Response A" in sample["response"] and "Response B" not in sample["response"]:
+            chosen = response_a
+        elif "Response A" not in sample["response"] and "Response B" in sample["response"]:
+            chosen = response_b
+        else:
+            print("Conflicting response: {}".format(sample["response"]))
+        if sample["instruct_3"] in chosen:
+            cnt_3 += 1
+        elif sample["instruct_1"] in chosen:
+            cnt_1 += 1
+    print(cnt_3 / len(dataset))
+    print(cnt_1 / len(dataset))
+
+
+def shp_processing_pipeline():
+    dataset = load_dataset("stanfordnlp/SHP")
+    tok = AutoTokenizer.from_pretrained("gpt2")
+
+    # Need to filter out responses below 2.0 score
+    print("Filtering by score...")
+    dataset = dataset.filter(lambda sample: sample["score_ratio"] > 2.0)
+
+    # Truncate histories greater than 1024 chars or throw out entirely
+    MAX_LEN = 1024 - (len(tok("Human: ").input_ids) + len(tok("\n\nAssistant:").input_ids))
+    print("Filtering by context length...")
+    def compute_r_len(sample):
+        sample["r_len"] = max(len(tok(sample["human_ref_A"]).input_ids), len(tok(sample["human_ref_B"]).input_ids))
+        return sample
+    dataset = dataset.map(compute_r_len, num_proc=24)
+    dataset = dataset.filter(lambda sample: sample["r_len"] < MAX_LEN)
+    def truncate(sample):
+        max_history_len = MAX_LEN - sample["r_len"]
+        sample["history"] = "Human: " + tok.decode(tok(sample["history"]).input_ids[-max_history_len:]) + "\n\nAssistant:"
+        return sample
+    print("Truncating histories...")
+    dataset = dataset.map(truncate, num_proc=24)
+    
+    # Need to only select 5 responses from each dialogue
+    histories = {}
+    def make_pair_id(sample):
+        return sample["post_id"] + sample["c_root_id_A"] + sample["c_root_id_B"]
+    for sample in tqdm(dataset["train"]):
+        history = histories.get(sample["post_id"])
+        if history is None:
+            histories[sample["post_id"]] = [make_pair_id(sample)]
+        elif len(history) < 5:
+            histories[sample["post_id"]].append(make_pair_id(sample))
+    train_dataset = dataset["train"].filter(lambda sample: make_pair_id(sample) in histories[sample["post_id"]])
+    print("Filtered size: ", len(train_dataset))
+
+    dataset = DatasetDict({"train": train_dataset, "test": dataset["test"]})
+
+    # Format for RM repo
+    def form(sample):
+        if sample["score_A"] < sample["score_B"]:
+            temp = sample["score_A"]
+            sample["score_A"] = sample["score_B"]
+            sample["score_B"] = temp
+        return sample
+    dataset = dataset.map(form)
+    dataset = dataset.rename_column("history", "prompt")
+    dataset = dataset.rename_column("human_ref_A", "chosen")
+    dataset = dataset.rename_column("human_ref_B", "rejected")
+    print(dataset["train"][0])
+
+    dataset.push_to_hub("Dahoas/filtered-SHP")
+    
+
+
 if __name__ == "__main__":
     #make_hh_prompting_baseline_dataset()
     #make_human_prompts()
     #make_human_datasets()
     #make_summarization_eval_prompts()
-    make_human_comparison_dataset()
+    #make_human_comparison_dataset()
     #make_summary_ilql_responses()
     #make_hh_ilql_responses()
+    #clean_augmented_synthetic_prompt_responses()
+    make_instruct_preference_queries()
+    #analyze_instruct_preference()
+    #shp_processing_pipeline()

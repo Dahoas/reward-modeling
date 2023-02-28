@@ -1,10 +1,10 @@
-model_path: "Dahoas/pythia-6B-static-sft"
+model_path: "Dahoas/pythia-6b-rm-response-only-full-hh"
 model_type: "causal"
 tokenizer_path: "EleutherAI/gpt-neox-20b"
 num_layers_unfrozen: 0.5
 
 train_args:
-  output_dir: "/fsx/alex/ckpts/pythia/6B-rm"
+  output_dir: "/fsx/alex/ckpts/pythia/6B-rm-response-only-full-hh"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
@@ -18,5 +18,5 @@ train_args:
   fp16: True
   gradient_checkpointing: True
 
-data_path: "Dahoas/rm-static"
+data_path: "Dahoas/full-hh-rlhf"
 trainer_type: "sparse"

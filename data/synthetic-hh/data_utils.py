@@ -1,5 +1,6 @@
 import json
 import torch
+from tqdm import tqdm
 
 def load_prompts(file_path):
 	data = []
@@ -39,3 +40,14 @@ def compute_stats(dataset):
 
 	print(stats)
 	return stats
+
+def sample_in_dataset(sample, dataset):
+	for element in dataset:
+		if element["prompt"] == sample["prompt"]:
+			return True
+	return False
+
+def filter_by_logs(dataset, log_file):
+	returned_dataset = load_jsonl("{}.jsonl".format(log_file))
+	new_dataset = [sample for sample in tqdm(dataset) if not sample_in_dataset(sample, returned_dataset)]
+	return new_dataset

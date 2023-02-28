@@ -7,6 +7,7 @@ import numpy as np
 from tqdm import tqdm
 import time
 from datasets import load_dataset
+from data_utils import filter_by_logs
 
 
 def query(prompts, max_tokens, temperature=1.0, model="text-davinci-003"):
@@ -47,12 +48,20 @@ if __name__ == "__main__":
     parser.add_argument("--log_file")
     parser.add_argument("--oai_key")
     parser.add_argument("--model", default="text-davinci-003")
+    parser.add_argument("--filter", action="store_true")
+    parser.add_argument("--split", default="train")
     args = parser.parse_args()
 
     Logger.init(args.log_file)
     openai.api_key = args.oai_key
 
-    prompt_dataset = load_dataset(args.prompt_dataset)["train"]
+    prompt_dataset = load_dataset(args.prompt_dataset)[args.split]
     prompt_dataset = [{key: sample[key] for key in sample} for sample in prompt_dataset]
-    #prompt_dataset = prompt_dataset[21000:]
-    run_prompts(prompt_dataset, 10, 512, 1.0, args.model)
+
+    # Filter out queried prompts
+    if args.filter:
+        print("Dataset pre-filter: ", len(prompt_dataset))
+        prompt_dataset = filter_by_logs(prompt_dataset, args.log_file)
+        print("Dataset post-filter: ", len(prompt_dataset))
+    
+    run_prompts(prompt_dataset, 10, 1024, 0.7, args.model)

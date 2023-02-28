@@ -594,6 +594,28 @@ def upload_augmented_dataset():
     dataset.push_to_hub("Dahoas/augmented_synthetic_prompt_responses")
         
 
+def process_instruct_preference_queries():
+    dataset = load_jsonl("instruct_preference_queries.jsonl")
+
+    cnt = 0
+    new_dataset = {}
+    for sample in tqdm(dataset):
+        prompt = sample["prompt"]
+        response_a = prompt.split("Response A:")[1].split("Response B:")[0]
+        response_b = prompt.split("Response B:")[1].split("\n\n\n")[0]
+        if "Response A" in sample["response"] and "Response B" not in sample["response"]:
+            chosen = response_a
+            rejected = response_b
+        elif "Response A" not in sample["response"] and "Response B" in sample["response"]:
+            chosen = response_b
+            rejected = response_a
+        else:
+            print("Conflicting response: {}".format(sample["response"]))
+            cnt += 1
+
+
+    dataset.push_to_hub("Dahoas/instruct-synthetic-preferences")
+
 
 if __name__ == "__main__":
     #hf_upload()
@@ -611,4 +633,4 @@ if __name__ == "__main__":
     #gen_human_assistant()
     #clean_and_upload_full_synthetic()
     #make_hybrid_rm_dataset()
-    upload_augmented_dataset()
+    #upload_augmented_dataset()

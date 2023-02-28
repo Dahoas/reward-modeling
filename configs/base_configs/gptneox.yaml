@@ -1,9 +1,9 @@
 model_path: "EleutherAI/gpt-neox-20b"
 tokenizer_path: "EleutherAI/gpt-neox-20b"
-save_dir: "/fsx/alex/ckpts/gptneox-sft"
+save_dir: "/fsx/alex/ckpts/gptneox-response-full-static"
 
 train_args:
-  output_dir: "/fsx/alex/ckpts/gptneox-sft"
+  output_dir: "/fsx/alex/ckpts/gptneox-response-full-static"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
@@ -11,7 +11,7 @@ train_args:
   per_device_eval_batch_size: 1
   warmup_steps: 100
   weight_decay: 0.01
-  learning_rate: 5.0e-5
+  learning_rate: 1.0e-5
   save_total_limit: 1
   logging_dir: "./logs"
   fp16: True
@@ -19,4 +19,5 @@ train_args:
   evaluation_strategy: "epoch"
   gradient_checkpointing: True
 
-data_path: "Dahoas/sft-static"
+data_path: "Dahoas/static-hh"
+trainer: "masked"

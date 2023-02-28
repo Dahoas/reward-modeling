@@ -65,7 +65,7 @@ def train(config):
     tokenizer = AutoTokenizer.from_pretrained(config["tokenizer_path"])
     tokenizer.pad_token = tokenizer.eos_token
     training_args = TrainingArguments(**config["train_args"])
-    model = make_rm(config["model_path"], config["model_type"], config["tokenizer_path"])
+    model = make_rm(config["model_path"], config["model_type"], config["tokenizer_path"], True)
     freeze_bottom_causal_layers(model, config["num_layers_unfrozen"])
     PAD_ID = tokenizer(tokenizer.pad_token)["input_ids"][0]
     model.PAD_ID = PAD_ID
