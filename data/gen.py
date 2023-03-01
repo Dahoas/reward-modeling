@@ -212,7 +212,7 @@ Choose either Response A or Response B as being the most helpful:".format(dialog
 
 
 def analyze_instruct_preference():
-    dataset = load_jsonl("synthetic-hh/instruct_preference_queries.jsonl")
+    dataset = load_jsonl("synthetic-hh/instruct_preference_queries_test.jsonl")
     cnt_1, cnt_3 = 0, 0
     for sample in tqdm(dataset):
         prompt = sample["prompt"]
@@ -284,7 +284,68 @@ def shp_processing_pipeline():
     print(dataset["train"][0])
 
     dataset.push_to_hub("Dahoas/filtered-SHP")
-    
+
+
+def make_instruct_preferences():
+    train = load_jsonl("synthetic-hh/instruct_preference_queries_train.jsonl")
+    test = load_jsonl("synthetic-hh/instruct_preference_queries_test.jsonl")
+
+    def f(dataset):
+        new_dataset = {"prompt": [], "response": [], "chosen": [], "rejected": []}
+        fails = 0
+        for sample in dataset:
+            prompt = sample["prompt"]
+            response_a = prompt.split("Response A:")[1].split("Response B:")[0]
+            response_b = prompt.split("Response B:")[1].split("\n\n\n")[0]
+            if "Response A" in sample["response"] and "Response B" not in sample["response"]:
+                chosen = response_a
+                rejected = response_b
+            elif "Response A" not in sample["response"] and "Response B" in sample["response"]:
+                chosen = response_b
+                rejected = response_a
+            else:
+                fails += 1
+                continue
+                print("Unable to parse response: {}".format(sample["response"]))
+                
+
+            if sample["instruct_3"] in chosen and sample["instruct_1"] in rejected:
+                chosen = sample["instruct_3"]
+                rejected = sample["instruct_1"]
+            elif sample["instruct_1"] in chosen and sample["instruct_3"] in rejected:
+                chosen = sample["instruct_1"]
+                rejected = sample["instruct_3"]
+            else:
+                fails += 1
+                continue
+                print("###############Input response not found###############")
+                print("Response A:")
+                print(response_a)
+                print("Response B:")
+                print(response_b)
+                print("Instruct_3:")
+                print(sample["instruct_3"])
+                print("Instruct_1:")
+                print(sample["instruct_1"])
+                print("######################################################")
+
+            new_dataset["prompt"].append(sample["dialogue"])
+            new_dataset["chosen"].append(chosen)
+            new_dataset["rejected"].append(rejected)
+            new_dataset["response"].append(chosen)
+                
+        print("Extraction fail rate: ", fails / len(dataset))
+        print("Old len: ", len(dataset))
+        print("New len: ", len(new_dataset["prompt"]))
+        dataset = Dataset.from_dict(new_dataset)
+        return dataset
+
+    train = f(train)
+    test = f(test)
+    print(train[0])
+    print(test[0])
+    dataset = DatasetDict({"train": train, "test": test})
+    dataset.push_to_hub("Dahoas/instruct_helpful_preferences")
 
 
 if __name__ == "__main__":
@@ -296,6 +357,7 @@ if __name__ == "__main__":
     #make_summary_ilql_responses()
     #make_hh_ilql_responses()
     #clean_augmented_synthetic_prompt_responses()
-    make_instruct_preference_queries()
+    #make_instruct_preference_queries()
     #analyze_instruct_preference()
     #shp_processing_pipeline()
+    make_instruct_preferences()
