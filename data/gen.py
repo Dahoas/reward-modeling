@@ -348,6 +348,43 @@ def make_instruct_preferences():
     dataset.push_to_hub("Dahoas/instruct_helpful_preferences")
 
 
+def make_hh_human_eval():
+    dataset = load_dataset("Dahoas/static-hh")["test"]
+    dataset = dataset.select([i for i in range(100)])
+    dataset = dataset.remove_columns(["response", "chosen", "rejected"])
+    dataset = DatasetDict({"train": dataset})
+    print(len(dataset))
+    print(dataset["train"][1])
+    print(dataset)
+    dataset.push_to_hub("Dahoas/hh_human_eval")
+
+    dataset = load_dataset("Dahoas/hh_human_eval")
+
+
+def make_hh_prompted_eval():
+    dataset = load_dataset("Dahoas/hh_human_eval")
+    print(dataset["train"][1])
+    def f(sample):
+        sample["prompt"] = sample["prompt"].replace("Human:", "Q:").replace("Assistant:", "A:")
+        return sample
+    dataset = dataset.map(f)
+    print(dataset["train"][1])
+    dataset.push_to_hub("Dahoas/hh_prompted_human_eval")
+
+
+def fix_datasets():
+    def replace(sample):
+        sample["prompt"] = sample["prompt"].replace("\n\nAssistant ", "\n\nAssistant: ")
+        return sample
+    datasets = ["Dahoas/hh_human_eval", "Dahoas/static-hh", "Dahoas/rm-static"]
+    for dataset_name in datasets:
+        print(dataset_name)
+        dataset = load_dataset(dataset_name)
+        dataset = dataset.map(replace)
+        print(dataset["train"][0])
+        dataset.push_to_hub(dataset_name)
+
+
 if __name__ == "__main__":
     #make_hh_prompting_baseline_dataset()
     #make_human_prompts()
@@ -360,4 +397,7 @@ if __name__ == "__main__":
     #make_instruct_preference_queries()
     #analyze_instruct_preference()
     #shp_processing_pipeline()
-    make_instruct_preferences()
+   # make_instruct_preferences()
+   #make_hh_human_eval()
+   make_hh_prompted_eval()
+   #fix_datasets()

@@ -114,7 +114,7 @@ if __name__ == "__main__":
     stop_words_ids = [tokenizer.encode("Human:")]
     stopping_criteria = StoppingCriteriaList([StoppingCriteriaSub(stops=stop_words_ids)])
 
-    max_length = 1024
+    max_length = 1024 + 128
     def data_collator(data):
         prompts = [sample["prompt"] for sample in data]
         tok_prompts = tokenizer(prompts, padding="longest", truncation=True, max_length=max_length, return_tensors="pt")

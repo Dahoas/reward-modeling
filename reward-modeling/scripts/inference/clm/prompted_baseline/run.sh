@@ -1,0 +1,4 @@
+bash scripts/inference/clm/prompted_baseline/infer_pythia_prompted_125M.sh
+bash scripts/inference/clm/prompted_baseline/infer_pythia_prompted_1B.sh
+bash scripts/inference/clm/prompted_baseline/infer_pythia_prompted_6B.sh
+bash scripts/inference/clm/prompted_baseline/infer_pythia_prompted_20B.sh

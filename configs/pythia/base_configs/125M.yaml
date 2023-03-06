@@ -1,4 +1,4 @@
-model_path: "EleutherAI/pythia-125m-deduped"
+model_path: "EleutherAI/pythia-160m-deduped"
 tokenizer_path: "EleutherAI/gpt-neox-20b"
 save_dir: "/fsx/alex/ckpts/pythia/125M-response-full-static"
 
