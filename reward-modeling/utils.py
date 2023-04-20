@@ -109,13 +109,13 @@ def upload_model():
 
 
 def convert_deepspeed_checkpoint(is_rm=True):
-    model_name = "EleutherAI/pythia-6.9b-deduped" # "Dahoas/pythia-6B-static-sft"
-    tok_name = "EleutherAI/gpt-neox-20b" #"EleutherAI/gpt-neox-20b"
-    model_path = "/fsx/alex/ckpts/pythia/6B-sft-response-full-static"
-    model_ckpt = "checkpoint-11791/"
+    model_name = "EleutherAI/gpt-j-6B" # "Dahoas/pythia-6B-static-sft"
+    tok_name = "EleutherAI/gpt-j-6B" #"EleutherAI/gpt-neox-20b"
+    model_path = "/mnt/nvme/home/alex/repos/rlhf/ckpts/gptj-rm-IHP"
+    model_ckpt = "checkpoint-10633"
     type_t = "causal"
     if is_rm:
-        model = make_rm(model_name, type_t, tok_name)
+        model = make_rm(model_name, type_t, tok_name, True)
     else:
         model = AutoModelForCausalLM.from_pretrained(model_name)
     fp32_model = load_state_dict_from_zero_checkpoint(model, os.path.join(model_path, model_ckpt))
@@ -150,8 +150,8 @@ def split_ckpt(num_chunks):
 def hf_upload(make_repo=True):
     import os
     from huggingface_hub import HfApi, create_repo
-    converted_ckpt = "/fsx/alex/ckpts/pythia/6B-sft-response-full-static/hf_ckpt"
-    repo_name = "Dahoas/pythia-6B-sft-response-full-static"
+    converted_ckpt = "/mnt/nvme/home/alex/repos/rlhf/ckpts/gptj-rm-IHP/hf_ckpt"
+    repo_name = "Dahoas/gptj-rm-IHP"
     if make_repo:
         create_repo(repo_name, repo_type="model", private=False)
 
@@ -170,6 +170,6 @@ def hf_upload(make_repo=True):
         print(f"Successfully uploaded {file} !")
 
 if __name__ == "__main__":
-    convert_deepspeed_checkpoint(is_rm=False)
+    convert_deepspeed_checkpoint(is_rm=True)
     #split_ckpt(46)
     hf_upload(make_repo=True)

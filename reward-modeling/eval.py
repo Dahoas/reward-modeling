@@ -9,6 +9,8 @@ from transformers import AutoTokenizer, TrainingArguments, Trainer, AutoModelFor
 from rm_datasets import PairwiseDataset, PairwiseEvalDataset, pairwise_data_collator
 from datasets import load_dataset
 from utils import make_rm
+import torch.nn.functional as F
+import argparse
 
 def load_jsonl(filename):
 	data = []
@@ -179,14 +181,102 @@ def compute_acc_from_reward_labeled_data(dataset, order=["chosen", "rejected"]):
     print(json.dumps(accs, indent=2))
     print("Dataset acc: {}".format(acc))
 
+
+def compute_seq_kl(logprobs, ref_logprobs):
+    # TODO(alex): modify to only compute on response tokens
+    # Unbiased KL-div estimates (`k3`). Ref: http://joschu.net/blog/kl-approx.html
+    log_ratio = logprobs - ref_logprobs
+    ratio = torch.exp(log_ratio)
+    approx_kl = torch.mean((ratio - 1) - log_ratio)#torch.mean(torch.sum((ratio - 1) - log_ratio, dim=1))
+    return approx_kl
+
+
+def compute_kl_on_dataset(m1, m2, tok, dataset, d1, d2):
+    m1.eval().half()
+    m2.eval().half()
+    #d1, d2 = 0, 1
+    m1.to(f"cuda:{d1}")
+    m2.to(f"cuda:{d2}")
+
+    tok.pad_token = tok.eos_token
+    max_length = 1024
+    def data_collator(data):
+        prompts = [sample[0] for sample in data]
+        responses = [sample[1] for sample in data]
+        tok_prompts = tok(prompts, padding=False)["input_ids"]
+        tok_responses = tok(responses, padding=False)["input_ids"]
+        response_inds = [[len(tok_p), len(tok_p) + len(tok_r)] for tok_p, tok_r in zip(tok_prompts, tok_responses)]
+
+        data = [sample[0] + sample[1] for sample in data]
+        toks = tok(data, padding="longest", return_tensors="pt")
+
+        return toks, response_inds
+
+    batch_size = 1
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, collate_fn=data_collator)
+
+    def select_logprobs(logprobs, inds):
+        selected_logprobs = []
+        for ind, logprob in zip(inds, logprobs):
+            selected_logprobs.append(logprob[ind[0] : ind[1]])
+        selected_logprobs = torch.nn.utils.rnn.pad_sequence(selected_logprobs, batch_first=True)
+        return selected_logprobs
+
+    kl_mean = 0
+    kl_var = 0
+    for i, batch in enumerate(dataloader):
+        response_inds = batch[1]
+        batch = batch[0]
+        with torch.no_grad():
+            logits = m1(batch["input_ids"].to(f"cuda:{d1}"), batch["attention_mask"].to(f"cuda:{d1}")).logits.cpu().type(torch.float32)
+            ref_logits = m2(batch["input_ids"].to(f"cuda:{d2}"), batch["attention_mask"].to(f"cuda:{d2}")).logits.cpu().type(torch.float32)
+        # Pick only distribution over actions taken
+        logits = torch.gather(logits, 2, batch["input_ids"].unsqueeze(dim=-1)).squeeze(-1)
+        ref_logits = torch.gather(ref_logits, 2, batch["input_ids"].unsqueeze(dim=-1)).squeeze(-1)
+        logprobs = F.log_softmax(logits, dim=-1)
+        ref_logprobs = F.log_softmax(ref_logits, dim=-1)
+        logits = select_logprobs(logprobs, response_inds)
+        ref_logits = select_logprobs(ref_logprobs, response_inds)
+        new_kl = compute_seq_kl(logits, ref_logits)
+        if i < 10 or new_kl < kl_mean + 3*kl_var**(1/2):
+            kl_mean = (i*kl_mean + new_kl) / (i+1)
+            kl_var = (i*kl_var + (kl_mean - new_kl)**2) / (i+1)
+        if i % 40 == 0:
+            print("Step {} of {}".format(i, len(dataloader)))
+            print("KL mean: {} | KL var: {}".format(kl_mean, kl_var))
+    print("KL mean: {} | KL std: {}".format(kl_mean, kl_var))
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--d1", default=0, type=int)
+    parser.add_argument("--d2", default=1, type=int)
+    parser.add_argument("--m1", default="EleutherAI/pythia-70m-deduped", type=str)
+    parser.add_argument("--m2", default="EleutherAI/pythia-160m-deduped", type=str)
+    args = parser.parse_args()
     #dataset = load_jsonl("6B_rm_on_synthetic_test.jsonl")
     #dataset = load_jsonl("1B_rm_inference_test.jsonl")
-    dataset = load_jsonl("gptj_rm_static_rm_on_full_static_test.jsonl")
+    #dataset = load_jsonl("gptj_rm_static_rm_on_full_static_test.jsonl")
     #order = ["instruct_3", "instruct_1", "20B", "6B"]
-    order = ["chosen", "rejected"]
-    compute_acc_from_reward_labeled_data(dataset, order=order)
+    #order = ["chosen", "rejected"]
+    #compute_acc_from_reward_labeled_data(dataset, order=order)
     #label()
     #eval_rm_acc()
     #save_as_fp32()
     #gen_candidates()
+    #m1 = AutoModelForCausalLM.from_pretrained("/mnt/nvme/home/alex/repos/rlhf/trlx/examples/hh/vanilla-pythia-6B-frozen-4-2e6-bs-4-BEST")
+    #m1 = AutoModelForCausalLM.from_pretrained("Dahoas/pythia-6B-sft-response-full-static")
+    #m2 = AutoModelForCausalLM.from_pretrained("EleutherAI/pythia-6.9b-deduped")
+    #m1 = AutoModelForCausalLM.from_pretrained("Dahoas/gptneox-response-full-static-sft")
+    #m1 = AutoModelForCausalLM.from_pretrained("/mnt/nvme/home/alex/repos/rlhf/trlx/examples/hh/vanilla-gptneox-frozen-4-4e6")
+    #m2 = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neox-20b")
+    #m1 = AutoModelForCausalLM.from_pretrained("EleutherAI/pythia-70m-deduped")
+    #m2 = AutoModelForCausalLM.from_pretrained("EleutherAI/pythia-160m-deduped")
+    m1 = AutoModelForCausalLM.from_pretrained(args.m1)
+    m2 = AutoModelForCausalLM.from_pretrained(args.m2)
+
+    tok = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b")
+    dataset = []
+    for sample in load_dataset("Dahoas/static-hh")["train"]:
+        dataset.append([sample["prompt"], sample["chosen"]])
+    compute_kl_on_dataset(m1, m2, tok, dataset, args.d1, args.d2)

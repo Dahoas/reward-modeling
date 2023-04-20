@@ -1,9 +1,9 @@
 model_path: "EleutherAI/pythia-1.4b-deduped"
 tokenizer_path: "EleutherAI/gpt-neox-20b"
-save_dir: "/fsx/alex/ckpts/pythia/1B-response-full-static"
+save_dir: "/mnt/nvme/home/alex/repos/rlhf/ckpts/1B-sft-IHP"
 
 train_args:
-  output_dir: "/fsx/alex/ckpts/pythia/1B-response-full-static"
+  output_dir: "/mnt/nvme/home/alex/repos/rlhf/ckpts/1B-sft-IHP"
   num_train_epochs: 1
   logging_steps: 100
   save_strategy: "epoch"
@@ -17,5 +17,5 @@ train_args:
   fp16: True
   evaluation_strategy: "epoch"
 
-data_path: "Dahoas/static-hh"
+data_path: "Dahoas/instruct_helpful_preferences"
 trainer: "masked"

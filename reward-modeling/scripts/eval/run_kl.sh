@@ -1,0 +1,4 @@
+python -u eval.py --d1 0 --d2 1 --m1 Dahoas/pythia-6B-sft-response-full-static --m2 EleutherAI/pythia-6.9b-deduped &> kl_dist_6B_sft.txt &
+python -u eval.py --d1 2 --d2 3 --m1 /mnt/nvme/home/alex/repos/rlhf/trlx/examples/hh/vanilla-pythia-6B-frozen-4-2e6-bs-4-BEST --m2 EleutherAI/pythia-6.9b-deduped &> kl_dist_6B_vanilla_ppo.txt &
+python -u eval.py --d1 4 --d2 5 --m1 Dahoas/gptneox-response-full-static-sft --m2 EleutherAI/gpt-neox-20b &> kl_dist_20B_sft.txt &
+python -u eval.py --d1 6 --d2 7 --m1 /mnt/nvme/home/alex/repos/rlhf/trlx/examples/hh/vanilla-gptneox-frozen-4-4e6 --m2 EleutherAI/gpt-neox-20b &> kl_dist_20B_vanilla_ppo.txt &

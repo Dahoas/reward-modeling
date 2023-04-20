@@ -6,7 +6,7 @@ train_args:
   output_dir: "/mnt/nvme/home/alex/repos/rlhf/ckpts/6B-sft-IHP"
   num_train_epochs: 1
   logging_steps: 100
-  save_strategy: "epoch"
+  save_strategy: "no"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
   warmup_steps: 100

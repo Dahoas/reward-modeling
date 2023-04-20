@@ -59,6 +59,22 @@ def clean_rm_and_upload(dataset, name):
     dataset.push_to_hub(name)
 
 
+def clean_hh_human_eval_responses():
+    files = os.listdir("logs")
+    for f in files:
+        f = os.path.join("logs", f)
+        data = load_jsonl(f)
+        for sample in data:
+            sample["response"] = sample["response"].split("<|endoftext|>")[0]
+            if "prompted" in f:
+                sample["response"] = sample["response"].split("Q:")[0]
+                sample["response"] = " ".join(sample["response"].split(" ")[:128])
+                sample["prompt"] = sample["prompt"].replace("\n\nQ:", "\n\nHuman:").replace("\n\nA:", "\n\nAssistant:")
+        print("Sample from {}".format(f))
+        print(data[0])
+        dump_jsonl(f, data)
+
+
 if __name__ == "__main__":
     '''files = os.listdir("datasets")
     for file in files:
@@ -66,5 +82,6 @@ if __name__ == "__main__":
         name = file.replace(".jsonl", "")
         print("Processing {}...".format(name))
         clean_and_upload(dataset, name)'''
-    dataset = load_jsonl("6B_rm_inference_train.jsonl")
-    clean_rm_and_upload(dataset, "Dahoas/reward-labeled-static")
+    #dataset = load_jsonl("6B_rm_inference_train.jsonl")
+    #clean_rm_and_upload(dataset, "Dahoas/reward-labeled-static")
+    clean_hh_human_eval_responses()

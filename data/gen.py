@@ -6,6 +6,7 @@ from clean import clean
 import numpy as np
 import random
 from transformers import AutoTokenizer
+from clean import dump_jsonl
 
 
 def load_jsonl(filename):
@@ -95,31 +96,6 @@ def make_human_datasets():
         print(new_dataset[0])
         new_dataset.push_to_hub("Dahoas/{}".format(dataset_name))
 
-
-def make_human_comparison_dataset():
-    #prompts = load_dataset("Dahoas/hh_eval")["train"]["prompt"]
-    prompts = load_dataset("Dahoas/openai_summarize_tldr_human_eval")["train"]["prompt"]
-    models = ["125M", "1B", "6B"]
-
-    for model in models:
-        d1 = load_dataset("Dahoas/pythia_{}_sft_summarize_eval_human".format(model))["train"]
-        d2 = load_dataset("Dahoas/ilql_{}_summarization_eval".format(model))["train"]
-
-        comparison_dataset = {"prompt": [], model: [], "{}_ilql".format(model): []}
-        for prompt in tqdm(prompts):
-            d1_response = find_reponse_to_prompt(prompt, d1)
-            d2_response = find_reponse_to_prompt(prompt, d2)
-            if d1_response is None or d2_response is None:
-                continue
-            d1_response = d1_response["response"]
-            d2_response = d2_response["response"]
-            comparison_dataset["prompt"].append(prompt)
-            comparison_dataset[model].append(d1_response)
-            comparison_dataset["{}_ilql".format(model)].append(d2_response)
-
-        dataset = Dataset.from_dict(comparison_dataset)
-        print("Len: {}".format(len(dataset)))
-        dataset.push_to_hub("Dahoas/{}_summarization_sft_ilql_comparison".format(model))
 
 
 def make_hh_prompting_baseline_dataset():
@@ -385,6 +361,54 @@ def fix_datasets():
         dataset.push_to_hub(dataset_name)
 
 
+def hf_dataset_to_jsonl(dataset):
+    jsonl = []
+    for i in range(len(dataset["prompt"])):
+        jsonl.append({key: val[i] for key, val in dataset.items()})
+    return jsonl
+
+
+def make_human_comparison_dataset():
+    prompts = load_dataset("Dahoas/hh_human_eval")["train"]["prompt"]
+    #prompts = load_dataset("Dahoas/openai_summarize_tldr_human_eval")["train"]["prompt"]
+    models = ["125M", "1B", "6B", "20B"]
+    r_type = "ppo"
+
+    for model in models:
+        d1 = load_jsonl("logs/pythia_sft_{}_hh_eval.jsonl".format(model))
+        d2 = load_jsonl("logs/pythia_{}_{}_hh_eval.jsonl".format(r_type, model))
+
+        comparison_dataset = {"prompt": [], model: [], "{}_{}".format(r_type, model): []}
+        for prompt in tqdm(prompts):
+            d1_response = find_reponse_to_prompt(prompt, d1)
+            d2_response = find_reponse_to_prompt(prompt, d2)
+            if d1_response is None or d2_response is None:
+                continue
+            d1_response = d1_response["response"]
+            d2_response = d2_response["response"]
+            comparison_dataset["prompt"].append(prompt)
+            comparison_dataset[model].append(d1_response)
+            comparison_dataset["{}_{}".format(r_type, model)].append(d2_response)
+
+        #dataset = Dataset.from_dict(comparison_dataset)
+        dataset = hf_dataset_to_jsonl(comparison_dataset)
+        print("Len: {}".format(len(dataset)))
+        print(dataset[0])
+        dump_jsonl("comparisons/hh_human_eval_{}_{}.jsonl".format(r_type, model), dataset)
+        #dataset.push_to_hub("Dahoas/{}_summarization_sft_ilql_comparison".format(model))
+
+
+def make_rl_prompt_dataset():
+    dataset1 = load_dataset("Dahoas/instruct_helpful_preferences")
+    dataset2 = load_dataset("Dahoas/static-hh")
+
+    from datasets import concatenate_datasets
+
+    dataset = concatenate_datasets([dataset1["train"], dataset2["train"]]).shuffle()
+    dataset = DatasetDict({"train": dataset, "test": dataset2["test"]})
+    dataset.push_to_hub("Dahoas/rl-prompt-dataset")
+
+
 if __name__ == "__main__":
     #make_hh_prompting_baseline_dataset()
     #make_human_prompts()
@@ -399,5 +423,8 @@ if __name__ == "__main__":
     #shp_processing_pipeline()
    # make_instruct_preferences()
    #make_hh_human_eval()
-   make_hh_prompted_eval()
+   #make_hh_prompted_eval()
    #fix_datasets()
+   #make_human_comparison_dataset()
+   #make_human_comparison_dataset()
+   make_rl_prompt_dataset()

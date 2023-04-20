@@ -33,6 +33,8 @@ def train(config):
                                                                 'attention_mask': torch.stack([f[1] for f in data]),
                                                                 'labels': torch.stack([f[2] for f in data])}).train()
 
+    model.save_pretrained(config["train_args"]["output_dir"])
+
     if torch.distributed.get_rank() == 0:
         if os.environ.get('DEEPSPEED_ZERO_STAGE', '0') != '3':
             EOS_ID = tokenizer("<|endoftext|>")["input_ids"][0]
