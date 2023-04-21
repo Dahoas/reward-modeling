@@ -1,3 +1,7 @@
+# Update 4/21
+
+This repo is being deprecated for CarperAI's [tclx](https://github.com/CarperAI/tclx) (see this [pr](https://github.com/CarperAI/tclx/pull/4))
+
 # reward-modeling
 
 This is a research repository for training and evaluating reward models. Code is also included to train supervised fine-tuned base models.
