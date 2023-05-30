@@ -1,6 +1,6 @@
 # Update 4/21
 
-This repo is being deprecated for CarperAI's [tclx](https://github.com/CarperAI/tclx) (see this [pr](https://github.com/CarperAI/tclx/pull/4))
+This repo is being deprecated for CarperAI's [autocrit](https://github.com/CarperAI/tclx) (see this [pr](https://github.com/CarperAI/tclx/pull/4))
 
 # reward-modeling
 
